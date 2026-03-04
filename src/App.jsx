@@ -1257,26 +1257,6 @@ function CalendarPage({ navigate, settings }) {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "56px 40px" }} className="content-pad">
-        {/* Setup notice */}
-        <div style={{
-          background: `${BLUE}12`,
-          border: `2px solid ${BLUE}30`,
-          borderLeft: `4px solid ${BLUE}`,
-          borderRadius: 8, padding: "20px 28px",
-          display: "flex", gap: 16, alignItems: "flex-start",
-          marginBottom: 32,
-        }}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>ℹ️</span>
-          <div>
-            <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, color: DARK, fontSize: 15, marginBottom: 6 }}>
-              Google Calendar Setup
-            </p>
-            <p style={{ fontFamily: "'Outfit', sans-serif", color: "#5a6370", fontSize: 14, lineHeight: 1.7 }}>
-              To connect your church's Google Calendar: Open Google Calendar → Click the ⋮ menu on your calendar → <strong>Settings and sharing</strong> → Scroll to <strong>"Integrate calendar"</strong> → Copy your <strong>Calendar ID</strong> and <strong>API Key</strong>, then paste them in the Admin panel → ⚙️ Settings.
-            </p>
-          </div>
-        </div>
-
         {/* Calendar embed */}
         <div style={{
           background: "white", borderRadius: 12,
@@ -1305,7 +1285,7 @@ function CalendarPage({ navigate, settings }) {
             />
           ) : (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "#aaa", fontFamily: "'Outfit', sans-serif", fontSize: 15 }}>
-              Calendar not connected yet. Add your Calendar ID in Admin → ⚙️ Settings.
+              Calendar coming soon.
             </div>
           )}
         </div>
