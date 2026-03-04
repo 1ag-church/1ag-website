@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(lsof:*)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__execute_sql",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__list_projects",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__restore_project",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__get_project",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__list_tables",
+      "Bash(curl:*)",
+      "mcp__a2cd3641-928d-464c-8960-e613fc3524b0__apply_migration",
+      "Bash(git init)",
+      "Bash(git add .)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
