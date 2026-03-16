@@ -1834,7 +1834,7 @@ function SermonsPage({ sermons, navigate, settings }) {
     const matchSpeaker = speaker === "All" || s.speaker === speaker;
     const matchYear = year === "All" || (s.date && new Date(s.date).getFullYear() === parseInt(year));
     return matchSearch && matchSeries && matchSpeaker && matchYear;
-  }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }).sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
 
   const extractId = (val) => {
     const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|live\/|watch\?v=|watch\?.+&v=))([^&?\/\s]{11})/);
