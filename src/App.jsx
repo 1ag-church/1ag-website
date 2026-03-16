@@ -22,8 +22,8 @@ const DEFAULT_SETTINGS = {
   youthTime: "5:00 PM",
   givingUrl: "https://give.tithe.ly/?formId=da3a50fa-4392-4b56-8970-a97759f2e4e4",
   watchLiveUrl: "https://1agchurch.online.church",
-  calendarId: "info@1ag.tv",
-  calendarKey: "AIzaSyDJqSm1c2UbhG2JsMMa7QZrz5r8hyiGe1g",
+  calendarId: import.meta.env.VITE_GOOGLE_CALENDAR_ID || "info@1ag.tv",
+  calendarKey: import.meta.env.VITE_GOOGLE_API_KEY || "AIzaSyDJqSm1c2UbhG2JsMMa7QZrz5r8hyiGe1g",
   facebookUrl: "",
   instagramUrl: "",
   youtubeUrl: "",
@@ -559,14 +559,29 @@ function Footer({ navigate, settings }) {
 // GCAL_ID and GCAL_KEY are now managed via Settings admin panel (settings.calendarId / settings.calendarKey)
 
 // Sample events shown while the calendar is not yet connected
-const SAMPLE_EVENTS = [
-  { id: 1, summary: "Sunday Morning Service", start: "2025-02-16T10:00:00", location: "500 Cross Ave, Jerseyville" },
-  { id: 2, summary: "Youth Group", start: "2025-02-16T17:00:00", location: "500 Cross Ave, Jerseyville" },
-  { id: 3, summary: "Leadership Team Meeting", start: "2025-02-18T18:00:00", location: "Church Office" },
-  { id: 4, summary: "Sunday Morning Service", start: "2025-02-23T10:00:00", location: "500 Cross Ave, Jerseyville" },
-  { id: 5, summary: "Youth Group", start: "2025-02-23T17:00:00", location: "500 Cross Ave, Jerseyville" },
-  { id: 6, summary: "Community Outreach Day", start: "2025-03-01T09:00:00", location: "Jerseyville Community" },
-];
+// Dates are computed dynamically so they always appear in the near future
+const _buildSampleEvents = () => {
+  const now = new Date();
+  // Find the next Sunday
+  const daysUntilSunday = (7 - now.getDay()) % 7 || 7;
+  const nextSun = new Date(now);
+  nextSun.setDate(now.getDate() + daysUntilSunday);
+  const sun2 = new Date(nextSun); sun2.setDate(nextSun.getDate() + 7);
+  // A midweek date between the two Sundays
+  const wed = new Date(nextSun); wed.setDate(nextSun.getDate() + 3);
+  const fmt = (d, h, m) => {
+    const pad = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}:00`;
+  };
+  return [
+    { id: 1, summary: "Sunday Morning Service", start: fmt(nextSun, 10, 0), location: "500 Cross Ave, Jerseyville" },
+    { id: 2, summary: "Youth Group", start: fmt(nextSun, 17, 0), location: "500 Cross Ave, Jerseyville" },
+    { id: 3, summary: "Leadership Team Meeting", start: fmt(wed, 18, 0), location: "Church Office" },
+    { id: 4, summary: "Sunday Morning Service", start: fmt(sun2, 10, 0), location: "500 Cross Ave, Jerseyville" },
+    { id: 5, summary: "Youth Group", start: fmt(sun2, 17, 0), location: "500 Cross Ave, Jerseyville" },
+  ];
+};
+const SAMPLE_EVENTS = _buildSampleEvents();
 
 function UpcomingEvents({ navigate, settings }) {
   const [events, setEvents] = useState([]);
@@ -821,7 +836,7 @@ function UpcomingEvents({ navigate, settings }) {
 // ——————————————————————————————————————————————————————————————————————————
 function HomePage({ sermons, navigate, settings }) {
   const latest = sermons.length > 0
-    ? [...sermons].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+    ? [...sermons].sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1)[0]
     : null;
   const [visible, setVisible] = useState(false);
 
@@ -1819,7 +1834,7 @@ function SermonsPage({ sermons, navigate, settings }) {
     const matchSpeaker = speaker === "All" || s.speaker === speaker;
     const matchYear = year === "All" || (s.date && new Date(s.date).getFullYear() === parseInt(year));
     return matchSearch && matchSeries && matchSpeaker && matchYear;
-  }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }).sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
 
   const extractId = (val) => {
     const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|live\/|watch\?v=|watch\?.+&v=))([^&?\/\s]{11})/);
