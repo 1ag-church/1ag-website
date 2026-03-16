@@ -836,7 +836,7 @@ function UpcomingEvents({ navigate, settings }) {
 // ——————————————————————————————————————————————————————————————————————————
 function HomePage({ sermons, navigate, settings }) {
   const latest = sermons.length > 0
-    ? [...sermons].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+    ? [...sermons].sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1)[0]
     : null;
   const [visible, setVisible] = useState(false);
 
