@@ -2684,22 +2684,42 @@ function AdminDashboard({ sermons, setSermons, staff, setStaff, settings, setSet
     setView("form");
     window.scrollTo({ top: 0 });
   };
-  const handleDeleteSermon = (id) => {
+  const handleDeleteSermon = async (id) => {
     if (!window.confirm("Delete this sermon?")) return;
-    setSermons(p => p.filter(s => s.id !== id));
-    showToast("Sermon deleted.");
+    const newSermons = sermons.filter(s => s.id !== id);
+    try {
+      const result = await window.storage?.set(STORAGE_KEY, JSON.stringify(newSermons));
+      if (result) {
+        setSermons(newSermons);
+        showToast("Sermon deleted.");
+      } else {
+        showToast("❌ Delete failed — please try again.");
+      }
+    } catch (e) {
+      showToast("❌ Delete failed — please try again.");
+    }
   };
-  const handleSaveSermon = () => {
+  const handleSaveSermon = async () => {
     if (!form.title.trim() || !form.youtubeUrl.trim()) { alert("Title and YouTube URL are required."); return; }
     const youtubeId = extractId(form.youtubeUrl);
-    if (editId) {
-      setSermons(p => p.map(s => s.id === editId ? { ...s, ...form, youtubeId } : s));
-      showToast("✓ Sermon updated!");
-    } else {
-      setSermons(p => [{ ...form, id: Date.now().toString(), youtubeId }, ...p]);
-      showToast("✓ Sermon added!");
+    const newSermons = editId
+      ? sermons.map(s => s.id === editId ? { ...s, ...form, youtubeId } : s)
+      : [{ ...form, id: Date.now().toString(), youtubeId }, ...sermons];
+    setSaving(true);
+    try {
+      const result = await window.storage?.set(STORAGE_KEY, JSON.stringify(newSermons));
+      if (result) {
+        setSermons(newSermons);
+        showToast(editId ? "✓ Sermon updated!" : "✓ Sermon added!");
+        resetAndList();
+      } else {
+        showToast("❌ Save failed — please try again.");
+      }
+    } catch (e) {
+      showToast("❌ Save failed — please try again.");
+    } finally {
+      setSaving(false);
     }
-    resetAndList();
   };
 
   // â”€â”€ STAFF handlers â”€â”€
@@ -2961,7 +2981,7 @@ function AdminDashboard({ sermons, setSermons, staff, setStaff, settings, setSet
               <label className="label-text">Description</label>
               <textarea value={form.description || ""} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="A brief description..." className="input-field" style={{ height: 110, resize: "vertical", marginBottom: 32 }} />
               <div style={{ display: "flex", gap: 14 }}>
-                <button className="btn-primary" onClick={handleSaveSermon}>{editId ? "Save Changes" : "Add to Archive"}</button>
+                <button className="btn-primary" onClick={handleSaveSermon} disabled={saving}>{saving ? "Saving..." : (editId ? "Save Changes" : "Add to Archive")}</button>
                 <button onClick={resetAndList} style={{ background: "#f3f3f3", color: "#555", border: "none", borderRadius: 5, padding: "14px 24px", fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
               </div>
             </div>
