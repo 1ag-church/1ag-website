@@ -3242,9 +3242,9 @@ export default function App() {
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
-  // Save effects — only fire AFTER data has been loaded from Supabase
-  // Staff saves are handled explicitly in handleSaveStaff / handleDeleteStaff with real error feedback
-  useEffect(() => { if (!dataLoaded) return; try { window.storage && window.storage.set(STORAGE_KEY, JSON.stringify(sermons)); } catch (e) { } }, [sermons, dataLoaded]);
+  // Save effect for settings — fires after data has been loaded from Supabase
+  // Sermon saves are handled explicitly in handleSaveSermon / handleDeleteSermon
+  // Staff saves are handled explicitly in handleSaveStaff / handleDeleteStaff
   useEffect(() => { if (!dataLoaded) return; try { window.storage && window.storage.set(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }, [settings, dataLoaded]);
 
   // Load persisted data
