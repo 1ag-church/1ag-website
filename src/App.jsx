@@ -2911,6 +2911,29 @@ function AdminDashboard({ sermons, setSermons, staff, setStaff, settings, setSet
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 40px" }} className="content-pad">
 
+        <section aria-label="PastoralOS access" style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: 20, marginBottom: 32, padding: 24,
+          background: "white", border: "1px solid #dce5ea", borderRadius: 10,
+        }}>
+          <div style={{ flex: "1 1 240px" }}>
+            <h2 style={{ margin: "0 0 8px", color: DARK, fontSize: 24 }}>PastoralOS</h2>
+            <p style={{ margin: 0, color: "#52636d", fontSize: 16, lineHeight: 1.6 }}>
+              Guest follow-up, prayer requests, and message approvals.
+            </p>
+            <p style={{ margin: "8px 0 0", color: "#52636d", fontSize: 14, lineHeight: 1.6 }}>
+              The private preview also requires your authorized ChatGPT sign-in.
+            </p>
+          </div>
+          <a href="https://pastoralos.woobnoffer.chatgpt.site"
+            target="_blank" rel="noopener noreferrer"
+            aria-label="Open PastoralOS in a new tab"
+            className="btn-primary"
+            style={{ textDecoration: "none", textAlign: "center" }}>
+            Open PastoralOS ↗
+          </a>
+        </section>
+
         {/* ══════════ SERMONS ══════════ */}
         {section === "sermons" && view === "list" && (
           <div>
