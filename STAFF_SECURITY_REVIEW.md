@@ -15,3 +15,5 @@ The corresponding SQL policy changes are staged in the PastoralOS source at `sup
 Validation: website production build; PastoralOS's embedded Postgres authorization tests cover public reads, anonymous write denial, non-staff denial, designated staff writes, photo upload permissions, and immediate membership revocation. A real authenticated browser walkthrough and a restorable database backup remain required before the permission cutover. Automatic approval review blocked the data export pending explicit approval of the records and destination. No backup was produced by that attempt.
 
 Do not merge automatically. Coordinate with the existing Staff Login → PastoralOS link PR so its button is preserved. This branch does not supersede or merge that PR.
+
+The source-save review also identified an existing hard-coded Google API key. The fallback literal is removed in this branch. Confirm the saved calendar settings or `VITE_GOOGLE_API_KEY` hosting configuration supplies the existing authorized key before deployment; do not copy the key into source.
