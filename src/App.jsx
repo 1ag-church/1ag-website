@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import './supabase'; // Initialize Supabase storage
 import { uploadStaffPhoto, supabase } from './supabase';
+import { verifyWebsiteAdmin } from './staffAccess';
 
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -8,7 +9,7 @@ import { uploadStaffPhoto, supabase } from './supabase';
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BLUE = "#01A8D7";
 const DARK = "#212120";
-const ADMIN_PASS = import.meta.env.VITE_ADMIN_PASS || "1agchurch";
+
 const STORAGE_KEY = "1ag_sermons_v1";
 const STAFF_KEY = "1ag_staff_v1";
 const SETTINGS_KEY = "1ag_settings_v1";
@@ -23,7 +24,7 @@ const DEFAULT_SETTINGS = {
   givingUrl: "https://give.tithe.ly/?formId=da3a50fa-4392-4b56-8970-a97759f2e4e4",
   watchLiveUrl: "https://1agchurch.online.church",
   calendarId: import.meta.env.VITE_GOOGLE_CALENDAR_ID || "info@1ag.tv",
-  calendarKey: import.meta.env.VITE_GOOGLE_API_KEY || "AIzaSyDJqSm1c2UbhG2JsMMa7QZrz5r8hyiGe1g",
+  calendarKey: import.meta.env.VITE_GOOGLE_API_KEY || "",
   facebookUrl: "",
   instagramUrl: "",
   youtubeUrl: "",
@@ -2508,7 +2509,7 @@ function AdminLogin({ onLogin }) {
 
   const lockoutMinutes = lockedUntil ? Math.ceil((lockedUntil - Date.now()) / 60000) : 0;
   const isLocked = !!lockedUntil;
-  const canSubmit = !isLocked && (supabase ? (!!email && !!pw) : !!pw);
+  const canSubmit = !isLocked && !!supabase && !!email && !!pw;
 
   const recordFailure = () => {
     const lockout = getLoginLockout();
@@ -2528,27 +2529,20 @@ function AdminLogin({ onLogin }) {
     if (!canSubmit) return;
     setLoading(true);
     setError("");
-    if (supabase) {
+    try {
       const { error: authError } = await supabase.auth.signInWithPassword({ email, password: pw });
-      if (authError) {
-        recordFailure();
-      } else {
-        clearLoginLockout();
-        onLogin();
+      if (authError) { recordFailure(); return; }
+      if (!(await verifyWebsiteAdmin(supabase))) {
+        await supabase.auth.signOut();
+        setError("This account does not have website staff access.");
+        return;
       }
-      setLoading(false);
-    } else {
-      setTimeout(() => {
-        if (pw === ADMIN_PASS) {
-          clearLoginLockout();
-          try { window.storage && window.storage.set("1ag_admin_session", "true"); } catch (e) { }
-          onLogin();
-        } else {
-          recordFailure();
-        }
-        setLoading(false);
-      }, 600);
-    }
+      clearLoginLockout();
+      onLogin();
+    } catch {
+      setError("Unable to verify staff access. Please try again.");
+    } finally { setLoading(false); }
+
   };
 
   return (
@@ -2773,9 +2767,15 @@ function AdminDashboard({ sermons, setSermons, staff, setStaff, settings, setSet
   useEffect(() => { if (section === "settings") setSForm(settings); }, [settings]);
   // Sync sForm when settings tab is opened
   const handleOpenSettings = () => { setSForm(settings); setSection("settings"); setView("list"); setEditId(null); };
-  const handleSaveSettings = () => {
-    setSettings(sForm);
-    showToast("✓ Settings saved!");
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    try {
+      const result = await window.storage?.set(SETTINGS_KEY, JSON.stringify(sForm));
+      if (!result) throw new Error("Save failed");
+      setSettings(sForm);
+      showToast("✓ Settings saved!");
+    } catch { showToast("❌ Save failed — please try again."); }
+    finally { setSaving(false); }
   };
 
   const [pwForm, setPwForm] = useState({ newPw: "", confirmPw: "" });
@@ -3228,7 +3228,7 @@ export default function App() {
   const [sermons, setSermons] = useState(DEFAULT_SERMONS);
   const [staff, setStaff] = useState(DEFAULT_STAFF);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [dataLoaded, setDataLoaded] = useState(false);
+
 
   useEffect(() => {
     const handleHash = () => {
@@ -3242,16 +3242,16 @@ export default function App() {
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
-  // Save effect for settings — fires after data has been loaded from Supabase
+  // Saves happen only after an explicit staff action.
   // Sermon saves are handled explicitly in handleSaveSermon / handleDeleteSermon
   // Staff saves are handled explicitly in handleSaveStaff / handleDeleteStaff
-  useEffect(() => { if (!dataLoaded) return; try { window.storage && window.storage.set(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }, [settings, dataLoaded]);
+  // Settings are saved only by the authenticated explicit Save button.
 
   // Load persisted data
   useEffect(() => {
     const load = async () => {
       try {
-        if (!window.storage) { setDataLoaded(true); return; }
+        if (!window.storage) return;
         const [sd, std, stg] = await Promise.all([
           window.storage.get(STORAGE_KEY).catch(() => null),
           window.storage.get(STAFF_KEY).catch(() => null),
@@ -3267,29 +3267,28 @@ export default function App() {
           setSettings(merged);
         } catch (e) { }
       } catch (e) { }
-      setDataLoaded(true);
     };
     load();
   }, []);
 
   useEffect(() => {
-    if (!supabase) {
-      const checkLegacy = async () => {
-        try {
-          const ad = await window.storage?.get("1ag_admin_session").catch(() => null);
-          if (ad?.value === "true") setIsAdmin(true);
-        } catch (e) { }
-      };
-      checkLegacy();
-      return;
-    }
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setIsAdmin(true);
+    if (!supabase) return;
+    let active = true, sequence = 0;
+    const check = async () => {
+      const current = ++sequence;
+      try {
+        const allowed = await verifyWebsiteAdmin(supabase);
+        if (active && current === sequence) setIsAdmin(allowed);
+      } catch { if (active && current === sequence) setIsAdmin(false); }
+    };
+    void check();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      sequence++;
+      if (event === "SIGNED_OUT") setIsAdmin(false);
+      setTimeout(() => { if (active) void check(); }, 0);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAdmin(!!session);
-    });
-    return () => subscription.unsubscribe();
+    const timer = setInterval(check, 60000);
+    return () => { active = false; sequence++; clearInterval(timer); subscription.unsubscribe(); };
   }, []);
 
   const navigate = (p) => { window.location.hash = p; };
