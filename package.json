@@ -4,7 +4,7 @@
   "description": "1AG Church Official Website",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm ci --prefix pastoralos --no-audit --no-fund && npm run build --prefix pastoralos",
     "preview": "vite preview"
   },
   "dependencies": {

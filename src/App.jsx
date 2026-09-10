@@ -2925,7 +2925,7 @@ function AdminDashboard({ sermons, setSermons, staff, setStaff, settings, setSet
               The private preview also requires your authorized ChatGPT sign-in.
             </p>
           </div>
-          <a href="https://pastoralos.woobnoffer.chatgpt.site"
+          <a href="/pastoralos/"
             target="_blank" rel="noopener noreferrer"
             aria-label="Open PastoralOS in a new tab"
             className="btn-primary"
