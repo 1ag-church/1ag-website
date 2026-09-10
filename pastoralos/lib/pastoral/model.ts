@@ -6,7 +6,7 @@ export type Person = { id:string; name:string; email:string; phone:string; addre
 export type Prayer = { id:string; name:string; original:string; sharing:'private'|'unknown'|'shareable'; state:'review'|'drafted'|'closed'; createdAt:string; sample:boolean };
 export type Target = { personId:string; destination:string; context:number };
 export type Message = { id:string; program:Program; personId?:string; prayerId?:string; eventId?:string; eventVersion?:number; ruleId?:string; occurrence?:Occurrence; subject:string; body:string; channel:Channel; status:'pending'|'approved'|'held'|'cancelled'; revision:number; createdAt:string; scheduledAt:string; targets:Target[]; approval?:{ revision:number; fingerprint:string; actor:string; at:string; expiresAt:string }; reason:string };
-export type Delivery = { id:string; messageId:string; revision:number; target:Target; status:'queued'|'suppressed'|'cancelled'|'simulated'; reason:string; at:string };
+export type Delivery = { id:string; messageId:string; revision:number; target:Target; status:'queued'|'suppressed'|'cancelled'|'simulated'|'sent'|'delivered'|'failed'|'uncertain'; reason:string; at:string };
 export type Rule = { id:string; title:string; stage:string; days:number; recurrence?:Recurrence; channel:Channel; template:string; enabled:boolean; version:number };
 export type Event = { id:string; title:string; kind:'starting'|'pizza'; date:string; location:string; description:string; cancelled:boolean; version:number; registered:string[]; attended:string[]; sample:boolean };
 export type Task = { id:string; personId?:string; title:string; detail:string; done:boolean; private:boolean };
@@ -99,6 +99,7 @@ export function inHours(date:Date,start:string,end:string,timezone='America/Chic
  const t=new Intl.DateTimeFormat('en-GB',{timeZone:timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date);return t>=start&&t<end;
 }
 export function dispatchCheck(s:State,m:Message,t:Target,now=new Date(),live=false):string|null{
+ if(live&&(s.people.find(p=>p.id===t.personId)?.sample||s.prayers.find(p=>p.id===m.prayerId)?.sample))return 'Sample records cannot receive live messages';
  if(!live)return 'Live messaging is disabled';if(s.settings.paused||(m.program==='guest'?s.settings.guestPaused:s.settings.prayerPaused))return 'Sending paused';
  if(m.status!=='approved'||!m.approval||m.approval.revision!==m.revision||m.approval.fingerprint!==fingerprint(m))return 'Exact approval required';
  if(!m.targets.some(x=>x.personId===t.personId&&x.destination===t.destination&&x.context===t.context))return 'Recipient outside approved audience';
