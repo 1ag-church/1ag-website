@@ -30,3 +30,6 @@ yarn-error.log*
 
 # Testing
 coverage/
+/pastoralos/node_modules/
+/pastoralos/*.tsbuildinfo
+/.netlify/
