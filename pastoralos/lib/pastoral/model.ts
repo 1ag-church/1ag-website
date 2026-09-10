@@ -1,3 +1,4 @@
+import { normalizeContactPhone } from './people-csv.ts';
 export type Program = 'guest' | 'prayer';
 export type Channel = 'sms' | 'email';
 export type Recurrence = { frequency:'daily'|'weekly'|'monthly'; interval:number; duration:number; durationUnit:'days'|'weeks'|'months' };
@@ -11,7 +12,7 @@ export type Rule = { id:string; title:string; stage:string; days:number; recurre
 export type Event = { id:string; title:string; kind:'starting'|'pizza'; date:string; location:string; description:string; cancelled:boolean; version:number; registered:string[]; attended:string[]; sample:boolean };
 export type Task = { id:string; personId?:string; title:string; detail:string; done:boolean; private:boolean };
 export type Audit = { id:string; at:string; actor:string; action:string };
-export type State = { smsSuppressions?:{phone:string;at:string;messageSid:string}[]; visits?:{personId:string;at:string;source:string}[]; people:Person[]; prayers:Prayer[]; messages:Message[]; deliveries:Delivery[]; rules:Rule[]; ruleHistory:Rule[]; events:Event[]; tasks:Task[]; audit:Audit[]; settings:{ paused:boolean; guestPaused:boolean; prayerPaused:boolean; start:string; end:string; timezone:string; weeklyLimit:number; churchName:string; tone:string; facts:string }; inbox:{id:string; personId:string; body:string; at:string; program:Program|'unassigned';from?:string;source?:'twilio'}[] };
+export type State = { smsSuppressions?:{phone:string;at:string;messageSid:string}[]; visits?:{personId:string;at:string;source:string}[]; people:Person[]; prayers:Prayer[]; messages:Message[]; deliveries:Delivery[]; rules:Rule[]; ruleHistory:Rule[]; events:Event[]; tasks:Task[]; audit:Audit[]; settings:{ adminPhone?:string; paused:boolean; guestPaused:boolean; prayerPaused:boolean; start:string; end:string; timezone:string; weeklyLimit:number; churchName:string; tone:string; facts:string }; inbox:{id:string; personId:string; body:string; at:string; program:Program|'unassigned';from?:string;source?:'twilio'}[] };
 export type Action = {type:string; [key:string]:unknown};
 export const stages=['New guest','Welcome','Check-in','Returning guest','Starting Point invited','Registered','Completed','Regular attendee'];
 export const uid=()=>crypto.randomUUID();
@@ -187,10 +188,15 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
   s.messages.filter(m=>m.ruleId===r.id&&(m.status==='pending'||m.status==='approved')).forEach(m=>change(m,s,'held'));label=`Saved ${r.title} version ${r.version}; affected drafts held for review`;
  } else if(a.type==='rule.restore'){
   const r=find(s.rules,a.id);const old=s.ruleHistory.find(h=>h.id===r.id&&h.version===a.version);if(!old)throw Error('Previous version unavailable.');s.ruleHistory.unshift(structuredClone(r));Object.assign(r,structuredClone(old),{recurrence:old.recurrence?structuredClone(old.recurrence):undefined,version:r.version+1});s.messages.filter(m=>m.ruleId===r.id&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));label='Restored rule as a new version; affected drafts held';
+ } else if(a.type==='settings.admin-phone'){
+  if(typeof a.phone!=='string')throw Error('Enter the admin phone number.');
+  const phone=normalizeContactPhone(a.phone);if(!phone)throw Error('Enter the admin phone number.');
+  s.settings.adminPhone=phone;s.messages.filter(m=>m.status==='approved').forEach(m=>change(m,s,'held'));label='Admin phone updated; previous text review codes revoked';
  } else if(a.type==='settings.save'){
   const v=a.settings as State['settings'];if(!v||!/^\d{2}:\d{2}$/.test(v.start)||!/^\d{2}:\d{2}$/.test(v.end)||v.start>=v.end||v.start<'00:00'||v.end>'23:59'||Number(v.start.slice(3))>59||Number(v.end.slice(3))>59)throw Error('Choose a valid daytime sending window.');
   if(!Number.isInteger(v.weeklyLimit)||v.weeklyLimit<1||v.weeklyLimit>7)throw Error('Contact limit must be 1–7.');
-  s.settings={...s.settings,start:v.start,end:v.end,weeklyLimit:v.weeklyLimit,tone:validText(v.tone,3000),facts:validText(v.facts,6000),guestPaused:isBool(v.guestPaused),prayerPaused:isBool(v.prayerPaused)};s.messages.filter(m=>m.status==='approved').forEach(m=>change(m,s,'held'));label='Settings updated; scheduled approvals returned to review';
+  const adminPhone=v.adminPhone===undefined?s.settings.adminPhone:normalizeContactPhone(v.adminPhone);if(v.adminPhone!==undefined&&!adminPhone)throw Error('Enter the admin phone number.');
+  s.settings={...s.settings,adminPhone,start:v.start,end:v.end,weeklyLimit:v.weeklyLimit,tone:validText(v.tone,3000),facts:validText(v.facts,6000),guestPaused:isBool(v.guestPaused),prayerPaused:isBool(v.prayerPaused)};s.messages.filter(m=>m.status==='approved').forEach(m=>change(m,s,'held'));label='Settings updated; scheduled approvals returned to review';
  } else if(a.type==='pause'){
   s.settings.paused=isBool(a.paused);label=s.settings.paused?'All sending paused':'Global pause removed; live delivery still disabled';
  } else if(a.type==='event.save'){
