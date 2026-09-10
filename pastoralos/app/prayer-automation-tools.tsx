@@ -23,9 +23,10 @@ const labels:Record<string,string> = {received:'Received',drafting:'Preparing dr
 
 export function PrayerAutomationTools({state,busy,run,onRefresh,linkedRequest,onReview}:{state:State;busy:boolean;run:(action:Action)=>Promise<boolean>;onRefresh:()=>Promise<void>;linkedRequest?:string|null;onReview:(messageId:string|undefined,prayerId:string)=>void}) {
   const automation = (state as State & {automation?:AutomationView}).automation;
-  const [limit,setLimit] = useState(20), [refreshing,setRefreshing] = useState(false);
+  const [limit,setLimit] = useState(20), [refreshing,setRefreshing] = useState(false), [showHistory,setShowHistory] = useState(false);
   const requests = [...(automation?.requests ?? [])].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
-  const visibleRequests=linkedRequest?requests.filter(r=>r.id===linkedRequest):requests.slice(0,limit);
+  const activeRequests=requests.filter(r=>!['rejected','approved'].includes(r.status)&&state.prayers.find(p=>p.id===r.prayerId)?.state!=='closed');
+  const visibleRequests=linkedRequest?requests.filter(r=>r.id===linkedRequest):(showHistory?requests:activeRequests).slice(0,limit);
   const outbox = [...(automation?.outbox ?? [])].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
   return <section className="panel mb-6">
     <div className="panel-head flex-wrap">
@@ -35,7 +36,7 @@ export function PrayerAutomationTools({state,busy,run,onRefresh,linkedRequest,on
     <div className="px-6 pb-5 flex gap-2 flex-wrap">
       <span className={`badge ${automation?.enabled?'teal':'gray'}`}>{automation?.enabled?'Processing enabled':'Processing not enabled'}</span>
       <span className="badge gray">{automation?.broadcastsEnabled?'Broadcasts require approval':'Broadcast delivery off'}</span>
-      <span className="badge gray">{requests.length} {requests.length===1?'request':'requests'}</span>
+      <Button size="sm" variant="outline" onClick={()=>setShowHistory(!showHistory)}>{showHistory?'Show active requests':'Show history'}</Button><span className="badge gray">{requests.length} {requests.length===1?'request':'requests'}</span>
     </div>
     {linkedRequest&&<div className="px-6 pb-5"><a className="link-button" href="#prayer">View all prayer requests</a>{!visibleRequests.length&&<p role="status" className="mt-3">This request could not be found. Refresh activity or view all requests.</p>}</div>}
     {!requests.length?<div className="px-6 pb-6 text-sm muted">No prayer-line requests recorded yet. New requests will appear here as they are received.</div>:<div className="divide-y">
@@ -63,14 +64,14 @@ export function PrayerAutomationTools({state,busy,run,onRefresh,linkedRequest,on
             {item.awaitingEdit&&<span>Waiting for your edited wording</span>}
           </div>
           {item.error&&<p role="status" className="text-sm text-amber-800 mt-3 whitespace-pre-wrap break-words">{item.error}</p>}
-          {item.prayerId&&<div className="mt-4"><Button size="sm" disabled={busy} onClick={()=>onReview(item.messageId,item.prayerId)}>{item.messageId?'Review & approve':'Review request'}</Button>{!item.messageId&&item.draft&&<p className="text-sm muted mt-2">Broadcast approval becomes available after sharing permission and prayer-chain recipients are recorded.</p>}</div>}
+          {item.prayerId&&<div className="mt-4 flex gap-2 flex-wrap">{state.prayers.find(p=>p.id===item.prayerId)?.state!=='closed'&&item.status!=='approved'&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>run({type:'prayer.close',id:item.prayerId})}>Dismiss request</Button>}<Button size="sm" disabled={busy} onClick={()=>onReview(item.messageId,item.prayerId)}>{item.messageId?'Review & approve':'Review request'}</Button>{!item.messageId&&item.draft&&<p className="text-sm muted mt-2">Broadcast approval becomes available after sharing permission and prayer-chain recipients are recorded.</p>}</div>}
           {(canRetry||item.status==='review'||item.status==='expired')&&<div className="flex gap-2 mt-4 flex-wrap">
             {canRetry&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>run({type:'automation.retry',id:item.id})}><RefreshCw size={14}/>Retry processing</Button>}
             {(item.status==='review'||item.status==='expired')&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>run({type:'automation.review',id:item.id})}>Refresh review</Button>}
           </div>}
         </article>;
       })}
-      {!linkedRequest&&requests.length>limit&&<div className="p-5"><Button variant="outline" size="sm" onClick={()=>setLimit(limit+20)}>Show more requests</Button></div>}
+      {!linkedRequest&&(showHistory?requests:activeRequests).length>limit&&<div className="p-5"><Button variant="outline" size="sm" onClick={()=>setLimit(limit+20)}>Show more requests</Button></div>}
     </div>}
     <details className="border-t p-6 text-sm">
       <summary className="cursor-pointer font-semibold">Message queue and history · {outbox.length}</summary>
