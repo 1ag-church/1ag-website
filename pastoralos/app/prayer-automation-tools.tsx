@@ -1,5 +1,5 @@
 'use client';
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {RefreshCw} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import type {Action,State} from '@/lib/pastoral/model';
@@ -9,6 +9,8 @@ import {PrayerReviewCard} from './prayer-review-card';
 export function PrayerAutomationTools({state,busy,run,onRefresh,linkedRequest}:{state:State;busy:boolean;run:(action:Action)=>Promise<boolean>;onRefresh:()=>Promise<void>;linkedRequest?:string|null}) {
  const [history,setHistory]=useState(false),[refreshing,setRefreshing]=useState(false),[limit,setLimit]=useState(20);
  const automation=(state as PrayerApprovalState).automation;
+ const preparing=automation?.requests.some(request=>['received','drafting'].includes(request.status));
+ useEffect(()=>{if(!preparing||busy||refreshing)return;const timer=setTimeout(()=>{void onRefresh().catch(()=>{});},10000);return()=>clearTimeout(timer);},[preparing,busy,refreshing,onRefresh,state]);
  const linked=automation?.requests.find(request=>request.id===linkedRequest);
  const prayers=[...state.prayers].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).filter(prayer=>linkedRequest?prayer.id===linked?.prayerId:history||prayerNeedsApproval(state,prayer.id));
  const processing=(automation?.requests??[]).filter(request=>!state.prayers.some(prayer=>prayer.id===request.prayerId)&&(!linkedRequest||request.id===linkedRequest));
