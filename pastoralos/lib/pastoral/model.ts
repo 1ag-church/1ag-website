@@ -27,6 +27,17 @@ export function initialState(now=new Date()):State {
 }
 
 export function fingerprint(m:Message){const parts:unknown[]=[m.id,m.revision,m.program,m.channel,m.subject,m.body,m.scheduledAt,m.targets,m.eventId,m.eventVersion];if(m.occurrence)parts.push(m.occurrence);return JSON.stringify(parts);}
+function orderedJson(value:unknown):unknown {
+ if(Array.isArray(value))return value.map(orderedJson);
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([key,item])=>[key,orderedJson(item)]));
+ return value;
+}
+export function approvalMatches(m:Message):boolean {
+ // JSONB may reorder object keys after saving. Compare every approved value,
+ // preserving array order, without requiring the original property order.
+ try{return !!m.approval&&JSON.stringify(orderedJson(JSON.parse(m.approval.fingerprint)))===JSON.stringify(orderedJson(JSON.parse(fingerprint(m))));}
+ catch{return false;}
+}
 // Calendar arithmetic uses the church's Central wall clock, not fixed 24-hour months/days.
 const centralFormatter=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
 function wallTime(date:Date){const p=Object.fromEntries(centralFormatter.formatToParts(date).map(x=>[x.type,x.value]));return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second,date.getUTCMilliseconds());}
@@ -102,7 +113,7 @@ export function inHours(date:Date,start:string,end:string,timezone='America/Chic
 export function dispatchCheck(s:State,m:Message,t:Target,now=new Date(),live=false):string|null{
  if(live&&(s.people.find(p=>p.id===t.personId)?.sample||s.prayers.find(p=>p.id===m.prayerId)?.sample))return 'Sample records cannot receive live messages';
  if(!live)return 'Live messaging is disabled';if(s.settings.paused||(m.program==='guest'?s.settings.guestPaused:s.settings.prayerPaused))return 'Sending paused';
- if(m.status!=='approved'||!m.approval||m.approval.revision!==m.revision||m.approval.fingerprint!==fingerprint(m))return 'Exact approval required';
+ if(m.status!=='approved'||!m.approval||m.approval.revision!==m.revision||!approvalMatches(m))return 'Exact approval required';
  if(!m.targets.some(x=>x.personId===t.personId&&x.destination===t.destination&&x.context===t.context))return 'Recipient outside approved audience';
  if(now.toISOString()>=m.approval.expiresAt)return 'Approval expired';if(now.toISOString()<m.scheduledAt)return 'Not due';
  if(m.eventId){const e=s.events.find(e=>e.id===m.eventId);if(e&&new Date(e.date)<=now)return 'Event has already started';}
