@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {PrayerReviewCard} from '../app/prayer-review-card';
+import {fixture} from './prayer-fixture';
+import {approvePrayerRequest} from '../lib/pastoral/prayer-approval';
+const state=fixture();
+const render=(value=state)=>renderToStaticMarkup(<PrayerReviewCard state={value} prayerId="prayer" busy={false} run={async()=>true}/>);
+const html=render();
+assert.match(html,/Approve &amp; send/);assert.match(html,/>Decline</);assert.match(html,/1 designated prayer-chain member/);
+assert.doesNotMatch(html,/Prepare for approval|Refresh review|Permission needs clarification|Approve exact message/);
+const approved=approvePrayerRequest(state,{id:'prayer',body:'Reviewed message.'},'Test pastor');
+assert.doesNotMatch(render(approved),/Approve &amp; send/);assert.match(render(approved),/queued for prayer chain/);
+state.prayers[0].sharing='private';assert.doesNotMatch(render(),/Approve &amp; send/);assert.match(render(),/Close private request/);
+console.log('Prayer review rendering passed: two decision buttons, designated audience, queued result, private request.');
