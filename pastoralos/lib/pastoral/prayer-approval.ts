@@ -28,8 +28,11 @@ export function prayerNeedsApproval(state: State, prayerId: string) {
 }
 
 export function prayerDraft(state: PrayerApprovalState, prayerId: string): string {
-  return prayerMessage(state, prayerId)?.body || state.automation?.requests.find(request => request.prayerId === prayerId)?.draft ||
-    state.prayers.find(prayer => prayer.id === prayerId)?.original || '';
+  const message=prayerMessage(state,prayerId);
+  if(message?.body)return message.body;
+  const request=state.automation?.requests.find(request=>request.prayerId===prayerId);
+  if(request)return request.draft;
+  return state.prayers.find(prayer=>prayer.id===prayerId)?.original||'';
 }
 
 /** One staff decision saves the displayed wording and queues its fixed audience.
@@ -39,6 +42,7 @@ export function approvePrayerRequest(previous: PrayerApprovalState, input: {id:u
   const prayer = state.prayers.find(prayer => prayer.id === input.id);
   if (!prayer || prayer.state === 'closed' || prayer.sample) throw Error('This prayer request is not available for sending.');
   const request = state.automation?.requests.find(request => request.prayerId === prayer.id);
+  if(request&&['received','drafting','error'].includes(request.status))throw Error('Wait for the prayer summary to finish before approving.');
   if (prayer.sharing === 'private' || request?.privateRequested) throw Error('This request was marked private and stays with the pastor.');
   if (!state.automation?.enabled || !state.automation.broadcastsEnabled) throw Error('Prayer-chain delivery is not enabled yet.');
   if (typeof input.body !== 'string' || !input.body.trim() || input.body.trim().length > 6000) throw Error('Enter a prayer message between 1 and 6,000 characters.');

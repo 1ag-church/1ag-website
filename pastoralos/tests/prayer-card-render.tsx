@@ -11,5 +11,9 @@ assert.match(html,/Approve &amp; send/);assert.match(html,/>Decline</);assert.ma
 assert.doesNotMatch(html,/Prepare for approval|Refresh review|Permission needs clarification|Approve exact message/);
 const approved=approvePrayerRequest(state,{id:'prayer',body:'Reviewed message.'},'Test pastor');
 assert.doesNotMatch(render(approved),/Approve &amp; send/);assert.match(render(approved),/queued for prayer chain/);
+const processing=fixture();processing.automation!.requests[0].status='received';processing.automation!.requests[0].draft='';
+const pending=render(processing);assert.match(pending,/Preparing a concise summary/);assert.match(pending,/<button[^>]*disabled[^>]*>[\s\S]*?Approve &amp; send/);
+assert.equal(pending.split(processing.prayers[0].original).length-1,1,'original appears only under Original request');
+processing.automation!.requests[0].status='error';assert.match(render(processing),/Retry summary/);
 state.prayers[0].sharing='private';assert.doesNotMatch(render(),/Approve &amp; send/);assert.match(render(),/Close private request/);
 console.log('Prayer review rendering passed: two decision buttons, designated audience, queued result, private request.');

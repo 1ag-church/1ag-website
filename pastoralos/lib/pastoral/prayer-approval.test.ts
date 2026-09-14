@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {dispatchCheck,applyAction} from './model.ts';
-import {approvePrayerRequest,prayerRecipients,prayerNeedsApproval,type PrayerApprovalState} from './prayer-approval.ts';
+import {approvePrayerRequest,prayerDraft,prayerRecipients,prayerNeedsApproval,type PrayerApprovalState} from './prayer-approval.ts';
 
 import {fixture} from '../../tests/prayer-fixture.ts';
 
 const approve=(state=fixture())=>approvePrayerRequest(state,{id:'prayer',body:'The exact message the pastor reviewed.'},'Test pastor');
+
+test('incoming text cannot be approved while its summary is processing or failed',()=>{
+ for(const status of ['received','drafting','error']){
+  const s=fixture();s.automation!.requests[0].status=status;s.automation!.requests[0].draft='';
+  assert.equal(prayerDraft(s,'prayer'),'');
+  assert.throws(()=>approve(s),/summary to finish/);
+  assert.equal(s.deliveries.length,0);
+ }
+ const s=fixture();assert.equal(prayerDraft(s,'prayer'),s.automation!.requests[0].draft);
+});
 
 test('one approval saves exact wording and queues only designated members',()=>{
   const original=fixture(),state=approve(original),message=state.messages[0];
