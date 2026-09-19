@@ -31,3 +31,9 @@ Sending remains disabled until the previously documented SES account setup is co
 - Backend entrypoint typecheck and 13 integration tests, including authorization, version checks, image validation, and existing prayer approval and summary behavior.
 - Local browser: shared tag creation, content edits, duplication/deletion, template save, mobile preview, draft save/reopen, individual SMS scheduling, and phone-width layout. All contacts and sends in this fixture are fictional; no provider is contacted.
 - Production check: Netlify published commit and assets, protected endpoint responses, deployed function readback, contact classification, and worker health. Live email delivery requires AWS setup and is not claimed as tested.
+
+## Two-image layout follow-up
+
+The `Two images` block stores exactly two independently editable HTTPS image sources, descriptions, and optional destination links. It renders an email-compatible table with equal-width columns and stacks at mobile width. The upload handler retains the originally selected block ID and image slot across asynchronous completion. Existing designs remain unchanged by validation, so prior approval fingerprints remain compatible.
+
+Replace only `lib/pastoral/email-design.ts` in fresh staff and worker bundles for this follow-up. No database, storage, webhook, or SES credential changes are required. Validation: 52 shared/frontend tests, frontend/backend typechecks, production build, and local browser checks for desktop column positions, mobile stacking, and saving the image-pair draft. No real email was sent.
