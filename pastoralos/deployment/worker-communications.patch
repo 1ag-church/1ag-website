@@ -1,0 +1,18 @@
+--- a/supabase/functions/pastoralos-worker/index.ts
++++ b/supabase/functions/pastoralos-worker/index.ts
+@@ -1,3 +1,4 @@
++import {readBroadcastConfig,runBroadcastWorker} from '../../../lib/pastoral/broadcast-worker.ts';
+ import { runtimeSecrets } from '../../../lib/pastoral/runtime-secrets.ts';
+ import { supabaseClient, SupabaseWorkspaceStore } from '../../../lib/pastoral/supabase.ts';
+ import { runPrayerWorker } from '../../../lib/pastoral/prayer-worker.ts';
+@@ -24,8 +25,9 @@
+       openaiKey:secrets.openaiApiKey,notificationsEnabled:runtime.notifications_enabled,broadcastsEnabled:runtime.broadcasts_enabled,
+       voice:{token:secrets.twilioAuthToken,accountSid:twilioAccount.accountSid,phone:twilioAccount.phone,baseUrl:TWILIO_INBOUND_URL.replace(/\/inbound$/,''),greetingUrl:'https://1ag.tv/pastoralos/audio/prayer-line-greeting.mp3'},
+     });
++    const broadcasts=await runBroadcastWorker({load:()=>storage.load(owner),save:(version,state)=>storage.save(owner,version,state)},readBroadcastConfig(name=>Deno.env.get(name),{accountSid:twilioAccount.accountSid,phone:twilioAccount.phone,token:secrets.twilioAuthToken}));
+     await client.from('pastoral_worker_runtime').update({last_completed_at:new Date().toISOString(),last_phase:result.phase,last_error:null}).eq('owner_id',owner).eq('lease_id',run);
+-    return Response.json(result,{headers:{'Cache-Control':'no-store'}});
++    return Response.json({...result,broadcasts},{headers:{'Cache-Control':'no-store'}});
+   } catch {
+     await client.from('pastoral_worker_runtime').update({last_error:'Worker needs attention; review private tasks and provider status.'}).eq('owner_id',owner).eq('lease_id',run);
+     return new Response('Worker processing failed.',{status:503});
