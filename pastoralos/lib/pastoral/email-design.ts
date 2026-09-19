@@ -1,8 +1,9 @@
-export type BlockType='heading'|'text'|'image'|'button'|'columns'|'divider'|'video'|'social';
-export type EmailBlock={id:string;type:BlockType;text:string;secondary:string;url:string;image:string;align:'left'|'center'|'right';color:string;background:string;size:number;padding:number;bold:boolean};
+export type BlockType='heading'|'text'|'image'|'button'|'columns'|'divider'|'video'|'social'|'image-pair';
+export type EmailImage={src:string;alt:string;href:string};
+export type EmailBlock={id:string;type:BlockType;text:string;secondary:string;url:string;image:string;align:'left'|'center'|'right';color:string;background:string;size:number;padding:number;bold:boolean;images?:EmailImage[]};
 export type EmailDesign={version:1;background:string;surface:string;font:'Arial'|'Georgia';blocks:EmailBlock[]};
-export const blockLabels:Record<BlockType,string>={heading:'Heading',text:'Text',image:'Image',button:'Button',columns:'Columns',divider:'Divider',video:'Video link',social:'Social links'};
-export function newBlock(type:BlockType):EmailBlock{return {id:crypto.randomUUID(),type,text:({heading:'This week at 1AG',text:'Write your message here. We are glad you are part of our church family.',image:'Describe your image',button:'Learn more',columns:'First column',divider:'',video:'Watch the video',social:'Facebook'})[type],secondary:type==='columns'?'Second column':'Instagram',url:type==='button'?'https://1ag.tv':'',image:'',align:type==='text'||type==='columns'?'left':'center',color:'#183c45',background:type==='button'?'#167c80':'#ffffff',size:type==='heading'?32:16,padding:20,bold:type==='heading'||type==='button'};}
+export const blockLabels:Record<BlockType,string>={heading:'Heading',text:'Text',image:'Image',button:'Button',columns:'Columns',divider:'Divider',video:'Video link',social:'Social links','image-pair':'Two images'};
+export function newBlock(type:BlockType):EmailBlock{return {id:crypto.randomUUID(),type,text:({heading:'This week at 1AG',text:'Write your message here. We are glad you are part of our church family.',image:'Describe your image',button:'Learn more',columns:'First column',divider:'',video:'Watch the video',social:'Facebook','image-pair':''})[type],secondary:type==='columns'?'Second column':'Instagram',url:type==='button'?'https://1ag.tv':'',image:'',align:type==='text'||type==='columns'?'left':'center',color:'#183c45',background:type==='button'?'#167c80':'#ffffff',size:type==='heading'?32:16,padding:20,bold:type==='heading'||type==='button',...(type==='image-pair'?{images:[{src:'',alt:'Left image',href:''},{src:'',alt:'Right image',href:''}]}:{})};}
 export function starterDesign(kind='newsletter'):EmailDesign {return {version:1,background:'#f0f3f2',surface:'#ffffff',font:'Arial',blocks:kind==='blank'?[]:[{...newBlock('heading'),text:kind==='invitation'?"You're invited":'This week at 1AG'},newBlock('text'),...(kind==='newsletter'?[newBlock('columns')]:[]),newBlock('button')]};}
 export function escapeHtml(s:string):string{return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));}
 export function safeEmailUrl(s:string,image=false):boolean {try{const u=new URL(s);return u.protocol==='https:'&&!u.username&&!u.password&&!/[\x00-\x20]/.test(s)&&(!image||!u.pathname.toLowerCase().endsWith('.svg'));}catch{return false;}}
@@ -15,7 +16,12 @@ export function validateDesign(value:unknown):EmailDesign {
  if(!['left','center','right'].includes(b.align)||typeof b.bold!=='boolean'||!Number.isInteger(b.size)||b.size<12||b.size>48||!Number.isInteger(b.padding)||b.padding<0||b.padding>60)throw Error('Check email block styles.');
  const url=str(b.url,2000),image=str(b.image,2000);if(url&&!safeEmailUrl(url)||image&&!safeEmailUrl(image,true))throw Error('Use a full https:// link for images and buttons.');
  const secondary=str(b.secondary,4000);if(b.type==='social'&&secondary&&!safeEmailUrl(secondary)&&secondary!=='Instagram')throw Error('Use a full https:// link for the second social link.');
- return {id,type:b.type,text:str(b.text,6000),secondary,url,image,align:b.align,color:color(b.color),background:color(b.background),size:b.size,padding:b.padding,bold:b.bold};});
+ let images:EmailImage[]|undefined;
+ if(b.type==='image-pair'){
+  if(!Array.isArray(b.images)||b.images.length!==2)throw Error('Choose two images for this block.');
+  images=b.images.map(i=>{if(!i||typeof i!=='object')throw Error('Check both images.');const src=str(i.src,2000),alt=str(i.alt,500),href=str(i.href,2000);if(src&&!safeEmailUrl(src,true)||href&&!safeEmailUrl(href))throw Error('Use full https:// links for both images.');return {src,alt,href};});
+ }
+ return {id,type:b.type,text:str(b.text,6000),secondary,url,image,align:b.align,color:color(b.color),background:color(b.background),size:b.size,padding:b.padding,bold:b.bold,...(images?{images}:{})};});
  if(blocks.reduce((n,b)=>n+b.text.length+b.secondary.length,0)>20000)throw Error('Keep email text under 20,000 characters.');
  return {version:1,background:color(d.background),surface:color(d.surface),font:d.font,blocks};
 }
@@ -28,12 +34,16 @@ export function renderBlock(b:EmailBlock,inert=false):string {
  if(b.type==='image')content=b.image?`<img src="${escapeHtml(b.image)}" alt="${escapeHtml(b.text)}" width="560" style="display:block;width:100%;max-width:560px;height:auto;margin:auto;border:0">`:'<div style="padding:32px;color:#68777d;background:#edf2f2;text-align:center">Add an image</div>';
  if(b.type==='button')content=`<${inert||!b.url?'span':'a'} ${inert||!b.url?'':`href="${escapeHtml(b.url)}"`} style="display:inline-block;background:${b.background};color:#ffffff;padding:13px 24px;border-radius:6px;text-decoration:none;${style}color:#ffffff">${escapeHtml(b.text)}</${inert||!b.url?'span':'a'}>`;
  if(b.type==='columns')content=`<table role="presentation" width="100%"><tr><td class="email-column" width="50%" valign="top" style="padding-right:16px;${style}">${lines(b.text)}</td><td class="email-column" width="50%" valign="top" style="${style}">${lines(b.secondary)}</td></tr></table>`;
+ if(b.type==='image-pair')content=`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed;border-collapse:collapse"><tr>${(b.images??[]).map((i,index)=>{
+  const picture=i.src?`<img src="${escapeHtml(i.src)}" alt="${escapeHtml(i.alt)}" width="264" style="display:block;width:100%;max-width:100%;height:auto;border:0">`:`<div style="padding:36px 8px;background:#edf2f2;color:#68777d;text-align:center;font-size:14px">${index===0?'Add left image':'Add right image'}</div>`;
+  return `<td class="email-column" width="50%" valign="top" style="padding:${index===0?'0 8px 0 0':'0 0 0 8px'}">${i.href&&!inert?`<a href="${escapeHtml(i.href)}">${picture}</a>`:picture}</td>`;
+ }).join('')}</tr></table>`;
  if(b.type==='divider')content='<hr style="border:0;border-top:1px solid #dbe4e4">';
  if(b.type==='video')content=(b.image?`<img src="${escapeHtml(b.image)}" alt="" width="560" style="width:100%;height:auto"><br>`:'')+link('▶ '+b.text,b.url);
  if(b.type==='social')content=link(b.text||'Facebook',b.url)+(safeEmailUrl(b.secondary)?' &nbsp; · &nbsp; '+link('Instagram',b.secondary):'');
  return `<div style="padding:${b.padding}px;background:${b.type==='button'?'transparent':b.background};${style}">${content}</div>`;
 }
-export function renderEmail(value:EmailDesign,postalAddress?:string):{html:string;text:string}{const d=validateDesign(value);const text=d.blocks.map(b=>b.type==='divider'?'—':b.type==='columns'?b.text+'\n'+b.secondary:[b.text,b.url,b.type==='image'?b.image:'',b.type==='social'&&safeEmailUrl(b.secondary)?b.secondary:''].filter(Boolean).join('\n')).join('\n\n');
+export function renderEmail(value:EmailDesign,postalAddress?:string):{html:string;text:string}{const d=validateDesign(value);const text=d.blocks.map(b=>b.type==='image-pair'?(b.images??[]).map(i=>[i.alt,i.href||i.src].filter(Boolean).join('\n')).join('\n\n'):b.type==='divider'?'—':b.type==='columns'?b.text+'\n'+b.secondary:[b.text,b.url,b.type==='image'?b.image:'',b.type==='social'&&safeEmailUrl(b.secondary)?b.secondary:''].filter(Boolean).join('\n')).join('\n\n');
  const footer=postalAddress?`<div style="padding:28px;text-align:center;font:12px Arial;color:#65777c">1AG Church<br>${escapeHtml(postalAddress)}<br><a href="{{amazonSESUnsubscribeUrl}}">Unsubscribe</a></div>`:'';
  return {text,html:`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@media(max-width:480px){.email-column{display:block!important;width:100%!important;padding:0 0 16px!important}}</style></head><body style="margin:0;padding:24px 8px;background:${d.background};font-family:${d.font},serif"><table role="presentation" width="100%"><tr><td align="center"><table role="presentation" width="600" style="width:100%;max-width:600px;background:${d.surface}"><tr><td>${d.blocks.map(b=>renderBlock(b)).join('')}${footer}</td></tr></table></td></tr></table></body></html>`};}
 /** Interpret the scheduler's wall clock in church time, including daylight saving. Reject nonexistent spring-forward times. */
