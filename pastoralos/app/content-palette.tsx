@@ -20,33 +20,42 @@ const singles = [
   {type: 'video', icon: Video}, {type: 'social', icon: Share2},
 ] satisfies {type: BlockType; icon: typeof Type}[];
 
-function BlockChoices({label, icon: Icon, choices, open, onOpenChange, add}: {
+function BlockChoices({label, icon: Icon, choices, open, pinned, anotherOpen, onHoverOpen, onPin, onOpenChange, add}: {
   label: string; icon: typeof Type; choices: Choice[]; open: boolean;
+  pinned: boolean; anotherOpen: boolean; onHoverOpen: () => void; onPin: () => void;
   onOpenChange: (open: boolean) => void; add: (type: BlockType) => void;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hovering = useRef(false), dragging = useRef(false);
   const content = useRef<HTMLDivElement>(null);
   function cancelClose() {clearTimeout(timer.current);}
   function leave() {
+    clearTimeout(hoverTimer.current);
     cancelClose();
+    if (pinned) return;
     timer.current = setTimeout(() => {
       if (!dragging.current && !content.current?.contains(document.activeElement)) onOpenChange(false);
-    }, 180);
+    }, 450);
   }
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => {clearTimeout(timer.current); clearTimeout(hoverTimer.current);}, []);
   return <Popover.Root open={open} onOpenChange={onOpenChange}>
     <Popover.Trigger asChild>
       <button type="button" className="block-choice-trigger"
-        onPointerEnter={e => {if (e.pointerType === 'mouse') {cancelClose(); hovering.current = true; onOpenChange(true);}}}
+        onPointerEnter={e => {if (e.pointerType === 'mouse') {
+          cancelClose(); clearTimeout(hoverTimer.current); hovering.current = true;
+          // Crossing a neighboring trigger should not replace the menu being approached.
+          if (anotherOpen) hoverTimer.current = setTimeout(onHoverOpen, 250);
+          else onHoverOpen();
+        }}}
         onPointerLeave={leave}
-        onClick={e => {e.preventDefault(); cancelClose(); hovering.current = false; onOpenChange(true);}}
-        onKeyDown={e => {if (e.key === 'ArrowDown') {e.preventDefault(); hovering.current = false; onOpenChange(true); content.current?.querySelector('button')?.focus();}}}>
+        onClick={e => {e.preventDefault(); cancelClose(); clearTimeout(hoverTimer.current); hovering.current = false; onPin();}}
+        onKeyDown={e => {if (e.key === 'ArrowDown') {e.preventDefault(); cancelClose(); hovering.current = false; onPin(); content.current?.querySelector('button')?.focus();}}}>
         <Icon size={19}/><span>{label}<ChevronDown size={12}/></span>
       </button>
     </Popover.Trigger>
     <Popover.Portal>
-      <Popover.Content ref={content} className="block-choice-bubble" side="bottom" align="start" sideOffset={10} collisionPadding={16}
+      <Popover.Content ref={content} className="block-choice-bubble" side="bottom" align="start" sideOffset={0} collisionPadding={16}
         aria-label={`${label} options`} onPointerEnter={cancelClose} onPointerLeave={leave}
         onOpenAutoFocus={e => {if (hovering.current) e.preventDefault();}}
         onCloseAutoFocus={e => {if (hovering.current) e.preventDefault();}}
@@ -60,21 +69,23 @@ function BlockChoices({label, icon: Icon, choices, open, onOpenChange, add}: {
             onClick={() => {cancelClose(); add(type); onOpenChange(false);}}>
             <ChoiceIcon size={23}/><span><strong>{choiceLabel}</strong><small>{description}</small></span>
           </button>)}
-        <Popover.Arrow className="block-choice-arrow" width={12} height={6}/>
       </Popover.Content>
     </Popover.Portal>
   </Popover.Root>;
 }
 
 export function ContentPalette({add}: {add: (type: BlockType) => void}) {
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<{label: string; pinned: boolean} | null>(null);
   return <div className="block-grid">
     {groups.map(group => <BlockChoices key={group.label} {...group} add={add}
-      open={openGroup === group.label}
-      onOpenChange={open => setOpenGroup(current => open ? group.label : current === group.label ? null : current)}/>)}
+      open={openGroup?.label === group.label}
+      pinned={openGroup?.label === group.label && openGroup.pinned}
+      anotherOpen={openGroup !== null && openGroup.label !== group.label}
+      onHoverOpen={() => setOpenGroup(current => current?.pinned ? current : {label: group.label, pinned: false})}
+      onPin={() => setOpenGroup({label: group.label, pinned: true})}
+      onOpenChange={open => setOpenGroup(current => open ? {label: group.label, pinned: true} : current?.label === group.label ? null : current)}/>)}
     {singles.map(({type, icon: Icon}) => <button type="button" key={type} draggable
-      onPointerEnter={() => setOpenGroup(null)}
-      onDragStart={e => e.dataTransfer.setData('block-type', type)} onClick={() => add(type)}>
+      onDragStart={e => {setOpenGroup(null); e.dataTransfer.setData('block-type', type);}} onClick={() => {setOpenGroup(null); add(type);}}>
       <Icon size={19}/>{blockLabels[type]}
     </button>)}
   </div>;
