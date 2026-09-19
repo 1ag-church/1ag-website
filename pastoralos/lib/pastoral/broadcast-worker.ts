@@ -1,3 +1,4 @@
+import {renderEmail} from './email-design.ts';
 import {broadcastIssue,type Broadcast,type BroadcastTarget,type CommunicationsState,type DeliveryConnection} from './communications.ts';
 export type BroadcastConfig={twilio?:{accountSid:string;token:string;phone:string};ses?:{region:string;accessKeyId:string;secretAccessKey:string;sessionToken?:string;from:string;replyTo:string;contactList:string;postalAddress:string;enabled:boolean}};
 export interface BroadcastStore {load():Promise<{state:CommunicationsState;version:number}>;save(version:number,state:CommunicationsState):Promise<unknown>}
@@ -15,7 +16,7 @@ export async function sendSes(b:Broadcast,t:BroadcastTarget,config:NonNullable<B
  if(!deliveryConnection({ses:config}).email)throw new ProviderRejected('Amazon SES is not configured.');
  const host=`email.${config.region}.amazonaws.com`,path='/v2/email/outbound-emails',stamp=now.toISOString().replace(/[:-]|\.\d{3}/g,''),day=stamp.slice(0,8);
  const footer=`\n\n1AG Church\n${config.postalAddress}\nUnsubscribe: {{amazonSESUnsubscribeUrl}}`;
- const body=JSON.stringify({FromEmailAddress:config.from,ReplyToAddresses:[config.replyTo],Destination:{ToAddresses:[t.destination]},Content:{Simple:{Subject:{Data:b.subject,Charset:'UTF-8'},Body:{Text:{Data:b.body+footer,Charset:'UTF-8'}}}},ListManagementOptions:{ContactListName:config.contactList}});
+ const body=JSON.stringify({FromEmailAddress:config.from,ReplyToAddresses:[config.replyTo],Destination:{ToAddresses:[t.destination]},Content:{Simple:{Subject:{Data:b.subject,Charset:'UTF-8'},Body:{Text:{Data:b.body+footer,Charset:'UTF-8'},...(b.design?{Html:{Data:renderEmail(b.design,config.postalAddress).html,Charset:'UTF-8'}}:{})}}},ListManagementOptions:{ContactListName:config.contactList}});
  const headers:Record<string,string>={'content-type':'application/json','host':host,'x-amz-date':stamp};if(config.sessionToken)headers['x-amz-security-token']=config.sessionToken;
  const names=Object.keys(headers).sort(),signed=names.join(';'),canonical=`POST\n${path}\n\n${names.map(n=>`${n}:${headers[n].trim()}\n`).join('')}\n${signed}\n${await sha(body)}`;
  const scope=`${day}/${config.region}/ses/aws4_request`,toSign=`AWS4-HMAC-SHA256\n${stamp}\n${scope}\n${await sha(canonical)}`;
