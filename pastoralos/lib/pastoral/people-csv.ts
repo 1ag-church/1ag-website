@@ -70,14 +70,14 @@ export function previewPeopleCsv(text:string,options:CsvOptions,state:State):Csv
 export function importPeopleCsv(previous:State,text:string,options:CsvOptions,actor:string,now=new Date()):State {
   const rows=previewPeopleCsv(text,options,previous);
   if(typeof options.smsPermission!=='boolean'||typeof options.emailPermission!=='boolean'||typeof options.consentSource!=='string'||options.consentSource.length>500)throw Error('Choose contact permissions and enter a consent source under 500 characters.');
-  if((options.smsPermission||options.list==='guest'&&options.emailPermission)&&!options.consentSource.trim())throw Error('Record how these people gave permission to be contacted.');
+  if((options.smsPermission||options.emailPermission)&&!options.consentSource.trim())throw Error('Record how these people gave permission to be contacted.');
   const invalid=rows.filter(r=>r.issue&&!r.duplicate);if(invalid.length)throw Error(`Fix ${invalid.length} invalid row(s) before importing.`);
   const ready=rows.filter(r=>!r.issue);if(!ready.length)throw Error('There are no new people to import.');
   const s=structuredClone(previous),at=now.toISOString();
   for(const r of ready){
     const sms=options.smsPermission&&!!r.phone&&!s.smsSuppressions?.some(x=>x.phone===r.phone);
     const firstVisit=r.firstVisit?`${r.firstVisit}T12:00:00.000Z`:at;
-    const p:Person={id:crypto.randomUUID(),name:r.name,email:r.email,phone:r.phone,address:'',household:'',stage:options.list==='prayer'?'Contact':'New guest',assimilation:options.list==='guest',paused:false,archived:false,prayerMember:options.list==='prayer',prayerSms:options.list==='prayer'&&sms,guestSms:options.list==='guest'&&sms,guestEmail:options.list==='guest'&&options.emailPermission&&!!r.email,firstVisit,stageEnteredAt:firstVisit,source:`CSV import · ${options.list==='prayer'?'Prayer Chain':'Assimilation'}`,note:`Imported ${at} by ${actor}. SMS permission confirmed: ${options.smsPermission}. Email permission confirmed: ${options.list==='guest'&&options.emailPermission}. Consent source: ${options.consentSource.trim()||'Not recorded'}.`,context:1,sample:false};
+    const p:Person={channelPermissions:{sms,email:options.emailPermission&&!!r.email},id:crypto.randomUUID(),name:r.name,email:r.email,phone:r.phone,address:'',household:'',stage:options.list==='prayer'?'Contact':'New guest',assimilation:options.list==='guest',paused:false,archived:false,prayerMember:options.list==='prayer',prayerSms:options.list==='prayer'&&sms,guestSms:options.list==='guest'&&sms,guestEmail:options.emailPermission&&!!r.email,firstVisit,stageEnteredAt:firstVisit,source:`CSV import · ${options.list==='prayer'?'Prayer Chain':'Assimilation'}`,note:`Imported ${at} by ${actor}. SMS permission confirmed: ${options.smsPermission}. Email permission confirmed: ${options.emailPermission}. Consent source: ${options.consentSource.trim()||'Not recorded'}.`,context:1,sample:false};
     s.people.push(p);
   }
   s.audit.unshift({id:crypto.randomUUID(),at,actor,action:`Imported ${ready.length} people into ${options.list==='prayer'?'Prayer Chain':'Assimilation'}; skipped ${rows.filter(r=>r.duplicate).length} duplicate contacts. No messages sent.`});s.audit=s.audit.slice(0,1000);

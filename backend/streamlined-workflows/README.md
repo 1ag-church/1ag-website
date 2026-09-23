@@ -1,0 +1,15 @@
+# Global contact permissions and assimilation delivery
+
+The web app and all three live functions must share the updated permission logic. `pastoralos/lib/pastoral/contact-permissions.ts` is authoritative. Existing positive opt-ins from legacy program, tag and individual settings carry forward (explicitly authorized by the owner). Once `channelPermissions` exists, its true/false values win over all legacy values. Tags never grant consent. STOP records number suppression and turns the global text switch off for every matching contact.
+
+Fetch fresh `pastoralos-staff`, `pastoralos-twilio` and `pastoralos-worker` exports before deployment. Save each full result under `<snapshots>/<slug>/baseline.json`, then run `python3 backend/streamlined-workflows/prepare.py <snapshots> <prepared>`. Review baseline drift before using the output. Deploy the generated payloads through the Supabase deploy function tool; preserve custom authentication and existing `verify_jwt` settings. The script never reads credentials or changes secrets, database policies, DNS or phone routing.
+
+The overlays here preserve prayer processing while switching its recipient checks to global text permission. The worker adds assimilation preparation and delivery using the existing SES/Twilio senders. Due messages are prepared automatically; each exact message still requires the pastor's approval. Legacy guest approvals without `sendRequested` cannot begin sending. Durable claims, fresh eligibility checks, approval expiry, paused stages, sending hours and duplicate protection apply. Unknown provider results require manual review and are never automatically retried.
+
+Broadcast send/schedule actions persist a skipped-recipient report with names and reasons, including when every selected contact is excluded. Later exclusions and provider failures remain in the delivery details. Sent means provider acceptance, not inbox delivery or read confirmation.
+
+Validation: portal tests include global revocation, legacy carry-forward, prayer SMS-only enforcement, STOP, skipped audiences, shared destinations, background preparation, SMS/email provider mocks, concurrent workers, unknown results, step changes and Central calendar recurrence. All three exported function bundles must also pass TypeScript checks. Use the isolated local workspace preview for UI actions; do not send test church messages during deployment.
+
+Deployment order: worker and inbound readers, staff API, then web frontend via the existing Netlify Git deployment. Re-fetch functions and compare every file with the prepared payload, verify the production deploy commit and assets, then read the scheduled worker's completion status. Roll back using the saved original function exports and previous web deploy if needed; preserve recorded global opt-outs during any rollback.
+
+The separate texting-number draft (PR 23) is intentionally not part of this release. Rebase it on this release and merge these shared permission and worker changes before activating a second number.

@@ -23,7 +23,7 @@ export function PersonSearch({people,selected,channel,label,onSelect}:{people:Di
 }
 
 export function RecipientPicker({state,channel,groups,people,onChange}:{state:CommunicationsState;channel:Channel;groups:string[];people:string[];onChange:(groups:string[],people:string[])=>void}){
- const tags=directoryGroups(state),sms=channel==='sms';
+ const tags=directoryGroups(state).filter(g=>channel==='sms'||g.id!=='prayer'),sms=channel==='sms';
  const smsChoice=groups.length===0&&people.length<=1?'person':groups.length===1&&people.length===0?'tag:'+groups[0]:'saved';
  return <>
   <label className="field"><span>{sms?'Send to':'Add a group or tag'}</span><select className="plain-select" aria-label={sms?'Text recipients':'Email recipient tag'} value={sms?smsChoice:''} onChange={e=>{const value=e.target.value;if(sms){if(value==='person')onChange([],[]);else if(value.startsWith('tag:'))onChange([value.slice(4)],[]);}else if(value)onChange([...new Set([...groups,value])],people);}}>

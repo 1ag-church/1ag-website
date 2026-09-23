@@ -1,3 +1,4 @@
+import {channelPermissions,setChannelPermissions} from './contact-permissions.ts';
 import {validateDesign,renderEmail,type EmailDesign} from './email-design.ts';
 import {isAssimilating,applyAction,inHours, type State, type Person, type Channel, type Action} from './model.ts';
 
@@ -5,16 +6,20 @@ export type Group = {id:string; name:string};
 export type ContactPreference = {email:boolean; sms:boolean};
 export type DirectoryPerson = Person & {groups?:string[]; tags?:string[]; groupPreferences?:Record<string,ContactPreference>; contactPermissions?:ContactPreference};
 export type BroadcastTarget = {personId:string; destination:string; context:number; status:'pending'|'sending'|'sent'|'skipped'|'failed'|'uncertain'; reason?:string; providerId?:string; attemptedAt?:string};
-export type Broadcast = {id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
+export type SkippedRecipient = {personId:string;name:string;reason:string};
+export type Broadcast = { skippedRecipients?:SkippedRecipient[];id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
 export type CommunicationsState = State & {directoryGroups?:Group[]; broadcasts?:Broadcast[]; emailTemplates?:{id:string;name:string;design:EmailDesign}[]};
 export type DeliveryConnection = {sms:boolean; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string};
 export const builtinGroups:Group[]=[{id:'prayer',name:'Prayer chain'},{id:'guests',name:'Assimilation'}];
 export const directoryGroups=(s:CommunicationsState)=>[...builtinGroups,...(s.directoryGroups??[])];
 export function memberships(p:DirectoryPerson):string[]{return [...new Set([...(p.groups??[]).filter(x=>x!=='prayer'&&x!=='guests'),...(p.prayerMember?['prayer']:[]),...(isAssimilating(p)?['guests']:[])])];}
-export function preferences(p:DirectoryPerson,id:string):ContactPreference {if(id==='prayer')return {email:p.groupPreferences?.prayer?.email??false,sms:p.prayerSms};if(id==='guests')return {email:p.guestEmail,sms:p.guestSms};return p.groupPreferences?.[id]??{email:false,sms:false};}
+export function preferences(p:DirectoryPerson,id:string):ContactPreference {return {...channelPermissions(p),...(id==='prayer'?{email:false}:{})};}
+export function selectedFor(b:Pick<Broadcast,'groupIds'|'personIds'>,p:DirectoryPerson){return !!b.personIds?.includes(p.id)||b.groupIds.some(id=>memberships(p).includes(id));}
 export function recipientIssue(s:CommunicationsState,b:Pick<Broadcast,'channel'|'groupIds'|'personIds'>,p:DirectoryPerson):string|null {
  if(p.archived)return 'Archived';if(p.paused)return 'Contact paused';
- if(!(b.personIds?.includes(p.id)&&p.contactPermissions?.[b.channel])&&!b.groupIds.some(id=>memberships(p).includes(id)&&preferences(p,id)[b.channel]))return 'Group membership or permission unavailable';
+ if(!selectedFor(b,p))return 'No longer in the selected audience';
+ if(b.channel==='email'&&b.groupIds.includes('prayer'))return 'Prayer chain uses text messages only';
+ if(!channelPermissions(p)[b.channel])return b.channel==='sms'?'No text permission':'No email permission';
  const destination=b.channel==='sms'?p.phone:p.email;
  if(!destination)return 'Contact details missing';
  if(b.channel==='sms'&&!/^\+[1-9]\d{7,14}$/.test(destination))return 'Invalid phone number';
@@ -22,9 +27,16 @@ export function recipientIssue(s:CommunicationsState,b:Pick<Broadcast,'channel'|
  if(b.channel==='sms'&&s.smsSuppressions?.some(x=>x.phone===destination))return 'Opted out of texts';
  return null;
 }
-export function audience(s:CommunicationsState,b:Pick<Broadcast,'channel'|'groupIds'|'personIds'>):BroadcastTarget[]{
- const seen=new Set<string>();return s.people.flatMap(p=>{if(recipientIssue(s,b,p))return [];const destination=b.channel==='sms'?p.phone:p.email.toLowerCase();if(seen.has(destination))return [];seen.add(destination);return [{personId:p.id,destination,context:p.context,status:'pending' as const}];});
+export function audienceReport(s:CommunicationsState,b:Pick<Broadcast,'channel'|'groupIds'|'personIds'>){
+ const targets:BroadcastTarget[]=[],skipped:SkippedRecipient[]=[],seen=new Set<string>();
+ for(const p of s.people){if(!selectedFor(b,p))continue;const destination=b.channel==='sms'?p.phone:p.email.toLowerCase();
+  const reason=recipientIssue(s,b,p)??(p.sample?'Sample contact':seen.has(destination)?'Shared address or number; included once':null);
+  if(reason){skipped.push({personId:p.id,name:p.name,reason});continue;}
+  seen.add(destination);targets.push({personId:p.id,destination,context:p.context,status:'pending'});
+ }
+ return {targets,skipped};
 }
+export function audience(s:CommunicationsState,b:Pick<Broadcast,'channel'|'groupIds'|'personIds'>):BroadcastTarget[]{return audienceReport(s,b).targets;}
 function canonical(value:unknown):unknown {if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)]));return value;}
 export function broadcastFingerprint(b:Broadcast):string{return JSON.stringify([b.id,b.revision,b.subject,b.body,b.channel,[...b.groupIds].sort(),b.scheduledAt,b.targets.map(t=>[t.personId,t.destination,t.context]),...(b.personIds?.length||b.design?[b.personIds??[],canonical(b.design??null)]:[])]);}
 export function broadcastIssue(s:CommunicationsState,b:Broadcast,t:BroadcastTarget,now=new Date()):string|null {
@@ -41,7 +53,8 @@ export function broadcastIssue(s:CommunicationsState,b:Broadcast,t:BroadcastTarg
 export function broadcastStatus(b:Broadcast):string {
  if(b.status==='draft')return 'Draft';if(b.status==='cancelled')return 'Cancelled';
  if(b.targets.some(t=>['uncertain','failed'].includes(t.status)))return 'Needs attention';
- if(b.targets.length&&b.targets.every(t=>t.status==='sent'))return 'Sent';
+ if(!b.targets.length&&b.skippedRecipients?.length)return 'Not sent';
+ if(b.targets.length&&b.targets.every(t=>t.status==='sent'))return b.skippedRecipients?.length?'Finished with skips':'Sent';
  if(b.targets.length&&b.targets.every(t=>['sent','skipped'].includes(t.status)))return b.targets.some(t=>t.status==='sent')?'Finished with skips':'Not sent';
  if(b.targets.some(t=>t.status==='sending'||t.status==='sent'))return 'Sending';
  return b.scheduledAt>new Date().toISOString()?'Scheduled':'Queued';
@@ -58,14 +71,12 @@ export function applyCommunicationsAction(previous:State,action:Action,actor:str
   (s.directoryGroups??=[]).push({id:crypto.randomUUID(),name});label=`Created tag: ${name}`;
  }else if(action.type==='directory.person'){
   const p=s.people.find(p=>p.id===action.id) as DirectoryPerson|undefined;if(!p)throw Error('Person not found.');
-  const groups=strings(action.groups),tags=strings(action.tags,30),prefs=action.preferences as Record<string,ContactPreference>;
+  if(action.preferences!==undefined||action.contactPermissions!==undefined)throw Error('Contact permissions have been simplified. Reload the page before saving.');
+  const groups=strings(action.groups),tags=strings(action.tags??[],30);
   if(groups.some(id=>!directoryGroups(s).some(g=>g.id===id)))throw Error('Group no longer exists.');
-  if(!prefs||typeof prefs!=='object'||Array.isArray(prefs))throw Error('Check communication preferences.');
-  const clean:Record<string,ContactPreference>={};for(const id of groups){const v=prefs[id];if(!v||typeof v.email!=='boolean'||typeof v.sms!=='boolean')throw Error('Check communication preferences.');clean[id]={email:v.email,sms:v.sms};}
-  if(groups.includes('guests')!==isAssimilating(p))throw Error('Use the assimilation enrollment choice to change guest follow-up.');
-  if(action.contactPermissions!==undefined){const v=action.contactPermissions as ContactPreference;if(!v||typeof v.email!=='boolean'||typeof v.sms!=='boolean')throw Error('Check direct communication permissions.');p.contactPermissions={email:v.email,sms:v.sms};}
-  p.groups=groups;p.tags=tags;p.groupPreferences=clean;p.prayerMember=groups.includes('prayer');p.prayerSms=clean.prayer?.sms??false;
-  if(groups.includes('guests')){p.guestEmail=clean.guests.email;p.guestSms=clean.guests.sms;}
+  if(groups.includes('guests')!==isAssimilating(p))throw Error('Use assimilation enrollment to change guest follow-up.');
+  setChannelPermissions(p,action.channelPermissions??channelPermissions(p));
+  p.groups=groups;p.tags=tags;p.prayerMember=groups.includes('prayer');
   p.context++;if(typeof action.enroll==='boolean')s=applyAction(s,{type:'person.enrollment',id:p.id,enroll:action.enroll},actor,now) as CommunicationsState;label=`Updated tags and communication preferences for ${p.name}`;
  }else if(action.type==='broadcast.save'||action.type==='broadcast.send'){
   const existing=action.id?s.broadcasts?.find(b=>b.id===action.id):undefined;if(action.id&&!existing)throw Error('Broadcast not found.');if(existing?.status!=='draft'&&existing)throw Error('Cancel this broadcast before creating a replacement.');
@@ -74,6 +85,7 @@ export function applyCommunicationsAction(previous:State,action:Action,actor:str
   if(personIds.some(id=>!s.people.some(p=>p.id===id)))throw Error('A selected person no longer exists.');
   if(!subject||!body)throw Error('Add a subject and message.');if(action.type==='broadcast.send'&&!groupIds.length&&!personIds.length)throw Error('Choose an audience.');
   if(groupIds.some(id=>!directoryGroups(s).some(g=>g.id===id)))throw Error('Choose an existing group.');
+  if(channel==='email'&&groupIds.includes('prayer'))throw Error('Prayer chain uses text messages only. Choose Text messages for that group.');
   const date=action.scheduledAt?new Date(String(action.scheduledAt)):now;if(!Number.isFinite(date.getTime()))throw Error('Choose a valid date and time.');
   if(date.getTime()>now.getTime()+366*86400000)throw Error('Schedule up to one year ahead.');
   const b:Broadcast={id:existing?.id??crypto.randomUUID(),revision:(existing?.revision??0)+1,subject,body,channel,groupIds,...(personIds.length?{personIds}:{}),...(design?{design}:{}),scheduledAt:date.toISOString(),createdAt:existing?.createdAt??at,status:'draft',targets:[]};
@@ -82,10 +94,11 @@ export function applyCommunicationsAction(previous:State,action:Action,actor:str
  }else if(action.type==='broadcast.approve'){
   const b=s.broadcasts?.find(b=>b.id===action.id);if(!b||b.status!=='draft'||b.revision!==action.revision)throw Error('This draft changed. Review it again.');
   if(!connection[b.channel])throw Error(b.channel==='email'?'Amazon SES is not connected. You can save email drafts.':'Text delivery is not connected.');
-  const targets=audience(s,b).filter(t=>!s.people.find(p=>p.id===t.personId)?.sample);if(!targets.length)throw Error('No recipients with recorded permission.');
+  const {targets,skipped}=audienceReport(s,b);if(!targets.length&&!skipped.length)throw Error('Choose at least one person or a group with people.');
+  b.skippedRecipients=skipped;
   // Bind approval to the reviewed audience, not a newly expanded list.
   if(JSON.stringify(targets.map(t=>[t.personId,t.destination,t.context]))!==JSON.stringify(action.audience))throw Error('Recipients changed. Review this broadcast again.');
-  b.targets=targets;b.status='queued';b.approval={actor,at,fingerprint:broadcastFingerprint(b)};label=`Approved ${b.channel==='email'?'email':'text'} broadcast to ${targets.length} recipients`;
+  b.targets=targets;b.status='queued';b.approval={actor,at,fingerprint:broadcastFingerprint(b)};label=`${targets.length} queued · ${skipped.length} skipped${skipped.length?' — see delivery report':''}`;
  }else if(action.type==='broadcast.cancel'){
   const b=s.broadcasts?.find(b=>b.id===action.id);if(!b)throw Error('Broadcast not found.');b.status='cancelled';for(const t of b.targets)if(t.status==='pending'){t.status='skipped';t.reason='Cancelled by staff';}label='Broadcast cancelled; messages already submitted cannot be recalled';
  }else throw Error('Unknown communications action.');
