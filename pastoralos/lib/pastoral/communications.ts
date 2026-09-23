@@ -7,7 +7,7 @@ export type DirectoryPerson = Person & {groups?:string[]; tags?:string[]; groupP
 export type BroadcastTarget = {personId:string; destination:string; context:number; status:'pending'|'sending'|'sent'|'skipped'|'failed'|'uncertain'; reason?:string; providerId?:string; attemptedAt?:string};
 export type Broadcast = {id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
 export type CommunicationsState = State & {directoryGroups?:Group[]; broadcasts?:Broadcast[]; emailTemplates?:{id:string;name:string;design:EmailDesign}[]};
-export type DeliveryConnection = {sms:boolean; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string};
+export type DeliveryConnection = {sms:boolean; smsFrom?:string; smsGeneral?:boolean; smsReason?:string; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string};
 export const builtinGroups:Group[]=[{id:'prayer',name:'Prayer chain'},{id:'guests',name:'Assimilation'}];
 export const directoryGroups=(s:CommunicationsState)=>[...builtinGroups,...(s.directoryGroups??[])];
 export function memberships(p:DirectoryPerson):string[]{return [...new Set([...(p.groups??[]).filter(x=>x!=='prayer'&&x!=='guests'),...(p.prayerMember?['prayer']:[]),...(isAssimilating(p)?['guests']:[])])];}
