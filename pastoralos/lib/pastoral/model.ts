@@ -227,6 +227,8 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
   if(!Number.isInteger(v.weeklyLimit)||v.weeklyLimit<1||v.weeklyLimit>7)throw Error('Contact limit must be 1–7.');
   const adminPhone=v.adminPhone===undefined?s.settings.adminPhone:normalizeContactPhone(v.adminPhone);if(v.adminPhone!==undefined&&!adminPhone)throw Error('Enter the admin phone number.');
   s.settings={...s.settings,adminPhone,start:v.start,end:v.end,weeklyLimit:v.weeklyLimit,tone:validText(v.tone,3000),facts:validText(v.facts,6000),guestPaused:isBool(v.guestPaused),prayerPaused:isBool(v.prayerPaused)};s.messages.filter(m=>m.status==='approved').forEach(m=>change(m,s,'held'));label='Settings updated; scheduled approvals returned to review';
+ } else if(a.type==='assimilation.pause'){
+  s.settings.guestPaused=isBool(a.paused);label=s.settings.guestPaused?'Assimilation paused':'Assimilation resumed; active steps will prepare due follow-ups';
  } else if(a.type==='pause'){
   s.settings.paused=isBool(a.paused);label=s.settings.paused?'All sending paused':'Workflows resumed';
  } else if(a.type==='event.save'){
