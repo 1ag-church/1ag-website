@@ -7,9 +7,9 @@ export type ContactPreference = {email:boolean; sms:boolean};
 export type DirectoryPerson = Person & {groups?:string[]; tags?:string[]; groupPreferences?:Record<string,ContactPreference>; contactPermissions?:ContactPreference};
 export type BroadcastTarget = {personId:string; destination:string; context:number; status:'pending'|'sending'|'sent'|'skipped'|'failed'|'uncertain'; reason?:string; providerId?:string; attemptedAt?:string};
 export type SkippedRecipient = {personId:string;name:string;reason:string};
-export type Broadcast = { skippedRecipients?:SkippedRecipient[];id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
-export type CommunicationsState = State & {directoryGroups?:Group[]; broadcasts?:Broadcast[]; emailTemplates?:{id:string;name:string;design:EmailDesign}[]};
-export type DeliveryConnection = {sms:boolean; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string};
+export type Broadcast = { smsLine?:'general'; skippedRecipients?:SkippedRecipient[];id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
+export type CommunicationsState = State & {directoryGroups?:Group[]; broadcasts?:Broadcast[]; smsThreads?:Record<string,{readThrough?:string;doneThrough?:string;done?:boolean}>; emailTemplates?:{id:string;name:string;design:EmailDesign}[]};
+export type DeliveryConnection = {sms:boolean; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string; smsReason?:string; smsFrom?:string};
 export const builtinGroups:Group[]=[{id:'prayer',name:'Prayer chain'},{id:'guests',name:'Assimilation'}];
 export const directoryGroups=(s:CommunicationsState)=>[...builtinGroups,...(s.directoryGroups??[])];
 export function memberships(p:DirectoryPerson):string[]{return [...new Set([...(p.groups??[]).filter(x=>x!=='prayer'&&x!=='guests'),...(p.prayerMember?['prayer']:[]),...(isAssimilating(p)?['guests']:[])])];}
@@ -40,14 +40,14 @@ export function audience(s:CommunicationsState,b:Pick<Broadcast,'channel'|'group
 function canonical(value:unknown):unknown {if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)]));return value;}
 export function broadcastFingerprint(b:Broadcast):string{return JSON.stringify([b.id,b.revision,b.subject,b.body,b.channel,[...b.groupIds].sort(),b.scheduledAt,b.targets.map(t=>[t.personId,t.destination,t.context]),...(b.personIds?.length||b.design?[b.personIds??[],canonical(b.design??null)]:[])]);}
 export function broadcastIssue(s:CommunicationsState,b:Broadcast,t:BroadcastTarget,now=new Date()):string|null {
- if(b.status!=='queued'||!b.approval||b.approval.fingerprint!==broadcastFingerprint(b))return 'Approval changed';
+ if(b.status!=='queued'||!b.approval||b.approval.fingerprint!==broadcastFingerprint(b))return 'Message changed after sending was requested';
  if(s.settings.paused)return 'Workflows paused';
  if(s.settings.prayerPaused&&b.groupIds.includes('prayer'))return 'Prayer chain paused';
  if(s.settings.guestPaused&&b.groupIds.includes('guests'))return 'Guest follow-up paused';
  if(b.scheduledAt>now.toISOString())return 'Scheduled for later';
  if(!inHours(now,s.settings.start,s.settings.end,s.settings.timezone))return 'Outside sending hours';
  const p=s.people.find(p=>p.id===t.personId);if(!p)return 'Person removed';if(p.sample)return 'Sample contacts cannot receive broadcasts';
- if(p.context!==t.context||(b.channel==='sms'?p.phone:p.email.toLowerCase())!==t.destination)return 'Contact changed since approval';
+ if(p.context!==t.context||(b.channel==='sms'?p.phone:p.email.toLowerCase())!==t.destination)return 'Contact changed since sending was requested';
  return recipientIssue(s,b,p);
 }
 export function broadcastStatus(b:Broadcast):string {
@@ -63,7 +63,16 @@ function text(v:unknown,max:number){if(typeof v!=='string'||v.trim().length>max)
 function strings(v:unknown,max=100):string[]{if(!Array.isArray(v)||v.length>max||v.some(x=>typeof x!=='string'||!x.trim()||x.length>100))throw Error('Check the group or tag selection.');return [...new Set(v.map(x=>x.trim()))];}
 export function applyCommunicationsAction(previous:State,action:Action,actor:string,connection:DeliveryConnection,now=new Date()):CommunicationsState {
  let s=structuredClone(previous) as CommunicationsState,at=now.toISOString();let label='';
- if(action.type==='broadcast.template'){
+ if(action.type==='conversation.read'||action.type==='conversation.status'){
+  const phone=text(action.phone,32);if(!/^\+[1-9]\d{7,14}$/.test(phone))throw Error('Conversation phone number is missing.');
+  const incoming=s.inbox.filter(i=>i.source==='twilio'&&(i.from??s.people.find(p=>p.id===i.personId)?.phone)===phone).sort((a,b)=>b.at.localeCompare(a.at)||b.id.localeCompare(a.id))[0];
+  // Bind read/done to the last inbound message actually shown. New replies reopen the thread.
+  if((incoming?.id??'')!==action.lastIncomingId)throw Error('A new reply arrived. Refresh the conversation.');
+  const meta=(s.smsThreads??={})[phone]??{};
+  if(action.type==='conversation.read'){meta.readThrough=incoming?.id;label='Conversation marked read';}
+  else {if(typeof action.done!=='boolean')throw Error('Choose a conversation status.');meta.done=action.done;meta.doneThrough=incoming?.id;label=action.done?'Conversation marked done':'Conversation reopened';}
+  s.smsThreads[phone]=meta;
+ }else if(action.type==='broadcast.template'){
   const name=text(action.name,80);if(!name)throw Error('Name the template.');const design=validateDesign(action.design);(s.emailTemplates??=[]).unshift({id:crypto.randomUUID(),name,design});if(s.emailTemplates.length>50)throw Error('Up to 50 templates can be saved.');label='Email template saved';
  }else if(action.type==='directory.group'){
   const name=text(action.name,60);if(!name)throw Error('Enter a group name.');
@@ -90,15 +99,15 @@ export function applyCommunicationsAction(previous:State,action:Action,actor:str
   if(date.getTime()>now.getTime()+366*86400000)throw Error('Schedule up to one year ahead.');
   const b:Broadcast={id:existing?.id??crypto.randomUUID(),revision:(existing?.revision??0)+1,subject,body,channel,groupIds,...(personIds.length?{personIds}:{}),...(design?{design}:{}),scheduledAt:date.toISOString(),createdAt:existing?.createdAt??at,status:'draft',targets:[]};
   if(existing)s.broadcasts![s.broadcasts!.indexOf(existing)]=b;else(s.broadcasts??=[]).unshift(b);label='Broadcast draft saved';
-  if(action.type==='broadcast.send'){if(action.scheduledAt&&date<=now)throw Error('Choose a future time to schedule.');return applyCommunicationsAction(s,{type:'broadcast.approve',id:b.id,revision:b.revision,audience:action.audience},actor,connection,now);}
- }else if(action.type==='broadcast.approve'){
+  if(action.type==='broadcast.send'){if(action.scheduledAt&&date<=now)throw Error('Choose a future time to schedule.');return applyCommunicationsAction(s,{type:'broadcast.queue',id:b.id,revision:b.revision,audience:action.audience},actor,connection,now);}
+ }else if(action.type==='broadcast.queue'||action.type==='broadcast.approve'){
   const b=s.broadcasts?.find(b=>b.id===action.id);if(!b||b.status!=='draft'||b.revision!==action.revision)throw Error('This draft changed. Review it again.');
   if(!connection[b.channel])throw Error(b.channel==='email'?'Amazon SES is not connected. You can save email drafts.':'Text delivery is not connected.');
   const {targets,skipped}=audienceReport(s,b);if(!targets.length&&!skipped.length)throw Error('Choose at least one person or a group with people.');
   b.skippedRecipients=skipped;
-  // Bind approval to the reviewed audience, not a newly expanded list.
+  // Sending is one staff action. Retain the exact content and audience snapshot for safe dispatch.
   if(JSON.stringify(targets.map(t=>[t.personId,t.destination,t.context]))!==JSON.stringify(action.audience))throw Error('Recipients changed. Review this broadcast again.');
-  b.targets=targets;b.status='queued';b.approval={actor,at,fingerprint:broadcastFingerprint(b)};label=`${targets.length} queued · ${skipped.length} skipped${skipped.length?' — see delivery report':''}`;
+  b.targets=targets;b.status='queued';if(b.channel==='sms')b.smsLine='general';b.approval={actor,at,fingerprint:broadcastFingerprint(b)};label=`${targets.length} queued · ${skipped.length} skipped${skipped.length?' — see delivery report':''}`;
  }else if(action.type==='broadcast.cancel'){
   const b=s.broadcasts?.find(b=>b.id===action.id);if(!b)throw Error('Broadcast not found.');b.status='cancelled';for(const t of b.targets)if(t.status==='pending'){t.status='skipped';t.reason='Cancelled by staff';}label='Broadcast cancelled; messages already submitted cannot be recalled';
  }else throw Error('Unknown communications action.');
