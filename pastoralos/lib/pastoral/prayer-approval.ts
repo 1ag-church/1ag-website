@@ -1,3 +1,4 @@
+import {channelPermissions} from './contact-permissions.ts';
 import { applyAction, type State, type Target } from './model.ts';
 
 export type PrayerApprovalState = State & { automation?: {
@@ -9,7 +10,7 @@ export type PrayerApprovalState = State & { automation?: {
 export function prayerRecipients(state: State): Target[] {
   const seen = new Set<string>();
   return state.people.flatMap(person => {
-    if (!person.prayerMember || !person.prayerSms || person.paused || person.archived || person.sample ||
+    if (!person.prayerMember || !channelPermissions(person).sms || person.paused || person.archived || person.sample ||
         !/^\+[1-9]\d{7,14}$/.test(person.phone) || seen.has(person.phone) ||
         state.smsSuppressions?.some(item => item.phone === person.phone)) return [];
     seen.add(person.phone);

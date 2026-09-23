@@ -12,7 +12,7 @@ const hex=(b:ArrayBuffer)=>Array.from(new Uint8Array(b),x=>x.toString(16).padSta
 const sha=async(s:string)=>hex(await crypto.subtle.digest('SHA-256',encoder.encode(s)));
 async function hmac(key:Uint8Array,data:string):Promise<Uint8Array>{const k=await crypto.subtle.importKey('raw',key as BufferSource,{name:'HMAC',hash:'SHA-256'},false,['sign']);return new Uint8Array(await crypto.subtle.sign('HMAC',k,encoder.encode(data)));}
 export class ProviderRejected extends Error {}
-export async function sendSes(b:Broadcast,t:BroadcastTarget,config:NonNullable<BroadcastConfig['ses']>,fetcher:typeof fetch=fetch,now=new Date()):Promise<string>{
+export async function sendSes(b:Pick<Broadcast,'subject'|'body'|'design'>,t:BroadcastTarget,config:NonNullable<BroadcastConfig['ses']>,fetcher:typeof fetch=fetch,now=new Date()):Promise<string>{
  if(!deliveryConnection({ses:config}).email)throw new ProviderRejected('Amazon SES is not configured.');
  const host=`email.${config.region}.amazonaws.com`,path='/v2/email/outbound-emails',stamp=now.toISOString().replace(/[:-]|\.\d{3}/g,''),day=stamp.slice(0,8);
  const footer=`\n\n1AG Church\n${config.postalAddress}\nUnsubscribe: {{amazonSESUnsubscribeUrl}}`;
@@ -27,7 +27,7 @@ export async function sendSes(b:Broadcast,t:BroadcastTarget,config:NonNullable<B
  if(!response.ok){await response.body?.cancel();if(response.status>=400&&response.status<500)throw new ProviderRejected(`Amazon SES rejected the email (${response.status}).`);throw Error('SES acceptance unknown.');}
  const result=await response.json();if(typeof result.MessageId!=='string'||!result.MessageId)throw Error('SES acceptance unknown.');return result.MessageId;
 }
-export async function sendBroadcastSms(b:Broadcast,t:BroadcastTarget,config:NonNullable<BroadcastConfig['twilio']>,fetcher:typeof fetch=fetch):Promise<string>{
+export async function sendBroadcastSms(b:Pick<Broadcast,'body'>,t:BroadcastTarget,config:NonNullable<BroadcastConfig['twilio']>,fetcher:typeof fetch=fetch):Promise<string>{
  const response=await fetcher(`https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(12000),headers:{Authorization:`Basic ${btoa(`${config.accountSid}:${config.token}`)}`,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({From:config.phone,To:t.destination,Body:b.body})});
  if(!response.ok){await response.body?.cancel();if(response.status>=400&&response.status<500)throw new ProviderRejected(`Twilio rejected the text (${response.status}).`);throw Error('Twilio acceptance unknown.');}
  const result=await response.json();if(!/^SM[0-9a-f]{32}$/i.test(result.sid??'')||result.account_sid!==config.accountSid||result.to!==t.destination||result.from!==config.phone)throw Error('Twilio acceptance unknown.');return result.sid;

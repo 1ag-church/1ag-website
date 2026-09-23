@@ -31,7 +31,7 @@ test('one approval saves exact wording and queues only designated members',()=>{
 test('duplicates, opted-out, paused, archived, unpermitted and sample members are excluded',()=>{
   const state=fixture(),member=state.people[0];
   state.people.push({...member,id:'duplicate'},...[
-    {id:'paused',paused:true},{id:'archived',archived:true},{id:'sample',sample:true},{id:'unpermitted',prayerSms:false},{id:'opted-out'}
+    {id:'paused',paused:true},{id:'archived',archived:true},{id:'sample',sample:true},{id:'unpermitted',channelPermissions:{sms:false,email:true}},{id:'opted-out'}
   ].map((overrides,index)=>({...member,phone:`+120255501${10+index}`,...overrides})));
   state.smsSuppressions=[{phone:'+12025550114',at:new Date().toISOString(),messageSid:'test-opt-out'}];
   assert.deepEqual(prayerRecipients(state).map(target=>target.personId),['member']);
@@ -62,7 +62,7 @@ test('recipient changes after approval cannot expand its audience and opt-outs s
   const state=approve(),message=state.messages[0];
   state.people[1].prayerMember=true;
   assert.equal(message.targets.length,1);
-  state.people[0].prayerSms=false;
+  state.people[0].channelPermissions={sms:false,email:true};
   assert.match(dispatchCheck(state,message,message.targets[0],new Date(),true)!,/withdrawn/);
 });
 

@@ -5,7 +5,7 @@ import {applyCommunicationsAction,audience,broadcastIssue,broadcastStatus,member
 import {runBroadcastWorker,deliveryConnection,sendSes,type BroadcastStore} from './broadcast-worker.ts';
 const now=new Date('2026-09-19T16:00:00Z'),connection={sms:true,email:true};
 function state():CommunicationsState {const s:CommunicationsState=initialState(now);s.people=s.people.slice(0,2).map(p=>({...p,sample:false,stage:'Regular attendee'}));s.directoryGroups=[{id:'weekly',name:'Weekly email'}];s.settings.paused=false;s.settings.guestPaused=true;return s;}
-function member(s:CommunicationsState,id='p1',sms=true,email=true){return applyCommunicationsAction(s,{type:'directory.person',id,groups:['weekly'],tags:['Volunteer'],preferences:{weekly:{sms,email}}},'staff',connection,now);}
+function member(s:CommunicationsState,id='p1',sms=true,email=true){return applyCommunicationsAction(s,{type:'directory.person',id,groups:['weekly'],tags:['Volunteer'],channelPermissions:{sms,email}},'staff',connection,now);}
 function draft(s:CommunicationsState,channel='sms'){return applyCommunicationsAction(s,{type:'broadcast.save',subject:'Church update',body:'Join us Sunday.',channel,groupIds:['weekly']},'staff',connection,now);}
 function approve(s:CommunicationsState){const b=s.broadcasts![0];return applyCommunicationsAction(s,{type:'broadcast.approve',id:b.id,revision:b.revision,audience:audience(s,b).map(t=>[t.personId,t.destination,t.context])},'staff',connection,now);}
 function store(s:CommunicationsState){let state=s,version=1;return {load:async()=>({state:structuredClone(state),version}),save:async(v:number,next:CommunicationsState)=>{if(v!==version)throw Error('CONFLICT');state=structuredClone(next);version++;}} satisfies BroadcastStore;}
