@@ -16,7 +16,7 @@ export function smsOptOut(body: string, providerType: string): 'STOP' | 'START' 
   return '';
 }
 
-export function applyIncomingSms(previous: State, event: IncomingSms, now = new Date()): State {
+export function applyIncomingSms(previous: State, event: IncomingSms, now = new Date(), line:'prayer'|'general'='prayer'): State {
   const s = structuredClone(previous), at = now.toISOString();
   const id = `twilio:${event.accountSid}:${event.messageSid}`;
   // The database receipt is the authoritative dedupe key. These IDs also make retries safe in memory.
@@ -32,10 +32,10 @@ export function applyIncomingSms(previous: State, event: IncomingSms, now = new 
     // STOP belongs to the number, including all profiles sharing it and both programs.
     people.forEach(p => { setChannelPermissions(p,{...channelPermissions(p),sms:false}); });
   }
-  people.forEach(p => { p.context++; });
+  if(line==='prayer'||optOut==='STOP')people.forEach(p => { p.context++; });
   for (const m of s.messages) {
     const affected = peopleIds.has(m.personId ?? '') || (m.channel === 'sms' && m.targets.some(t => t.destination === event.from));
-    if (affected && m.status !== 'cancelled') {
+    if (affected && (line==='prayer'||optOut==='STOP'||m.program==='guest') && m.status !== 'cancelled') {
       m.status = 'held'; m.revision++; delete m.approval;
       m.reason = optOut === 'STOP' ? 'SMS opt-out received; review required' : 'Incoming reply; review required';
       s.deliveries.filter(d => d.messageId === m.id && d.status === 'queued').forEach(d => {
@@ -45,8 +45,9 @@ export function applyIncomingSms(previous: State, event: IncomingSms, now = new 
   }
   const body = event.body + (event.mediaCount ? `\n[${event.mediaCount} attachment(s) received. Media retrieval is not connected.]` : '');
   if (people.length === 1 && !people[0].archived) {
-    s.inbox.unshift({ id, personId: people[0].id, body, at, program: 'unassigned', from: event.from, source: 'twilio' });
+    s.inbox.unshift({ id, personId: people[0].id, body, at, program: 'unassigned', from: event.from, to:event.to, line, source: 'twilio' });
   } else {
+    s.inbox.unshift({id,personId:'',body,at,program:'unassigned',from:event.from,to:event.to,line,source:'twilio'});
     s.tasks.unshift({ id, title: people.length > 1 ? 'Review reply from a shared phone' : 'Review incoming text',
       detail: `From ${event.from}\n${body}\nDo not assume identity or permission to share this request.`, done: false, private: true });
   }
