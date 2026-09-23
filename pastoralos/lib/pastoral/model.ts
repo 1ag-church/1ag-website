@@ -106,7 +106,7 @@ export function eligible(s:State,m:Message,t:Target):string|null{
  if(p.paused)return 'Person paused';
  if(m.program==='prayer'){if(m.channel!=='sms')return 'Prayer chain uses text messages only';const prayer=s.prayers.find(p=>p.id===m.prayerId);if(!prayer||prayer.sharing!=='shareable'||prayer.state==='closed')return 'Sharing permission unavailable';if(!p.prayerMember||!channelPermissions(p).sms)return 'Prayer membership or permission withdrawn';}
  else {if(!isAssimilating(p))return 'Not enrolled in assimilation';if(p.completedAt||p.stage==='Completed'||p.stage==='Regular attendee')return 'Guest sequence ended';if(!(channelPermissions(p)[m.channel]))return 'Contact permission unavailable';}
- if(m.ruleId){const rule=s.rules.find(r=>r.id===m.ruleId);if(!rule||!rule.enabled)return 'Rule paused';if(p.stage!==rule.stage)return 'Guest step changed';const issue=recurringIssue(s,m);if(issue)return issue;}
+ if(m.ruleId){const rule=s.rules.find(r=>r.id===m.ruleId);if(!rule)return 'Step deleted';if(!rule.enabled)return 'Rule paused';if(p.stage!==rule.stage)return 'Guest step changed';const issue=recurringIssue(s,m);if(issue)return issue;}
  if(m.eventId){const e=s.events.find(e=>e.id===m.eventId);if(!e||e.cancelled||e.version!==m.eventVersion)return 'Event changed';}
  return null;
 }
@@ -210,12 +210,23 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
   const m=find(s.messages,a.id);change(m,s,a.type==='message.hold'?'held':'pending');if(a.type==='message.reopen'){if(m.ruleId){const rule=find(s.rules,m.ruleId),person=find(s.people,m.personId);if(!rule.enabled)throw Error('Enable this rule before refreshing its draft.');if(person.stage!==rule.stage)throw Error('This draft does not match the current guest step. Prepare a new follow-up.');m.body=rule.template.replaceAll('{firstName}',person.name.split(' ')[0]);m.subject=rule.title;m.channel=rule.channel;const repeatIssue=recurringIssue(s,{...m,scheduledAt:at},now);if(repeatIssue)throw Error(repeatIssue);}if(m.eventId){const event=find(s.events,m.eventId);if(event.cancelled||new Date(event.date)<=now)throw Error('Choose an upcoming event before refreshing this invitation.');m.eventVersion=event.version;const person=find(s.people,m.personId);m.body=`Hi ${person.name.split(' ')[0]}! You're invited to ${event.title} at ${event.location} on ${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'full',timeStyle:'short'}).format(new Date(event.date))} (Central time). ${event.description}`;}m.scheduledAt=at;m.targets=m.targets.map(t=>{const p=s.people.find(p=>p.id===t.personId);return p?{personId:p.id,destination:m.channel==='sms'?p.phone:p.email,context:p.context}:t;});}label=a.type==='message.hold'?'Message held; approval revoked':'Draft refreshed with current contact details; fresh approval required';
  } else if(a.type==='rule.save'){
   const existing=a.id?s.rules.find(r=>r.id===a.id):undefined;if(a.id&&!existing)throw Error('Step no longer exists.');
+  if(existing&&a.version!==undefined&&a.version!==existing.version)throw Error('This step changed. Reopen it before saving.');
   const r:Rule=existing??{id:uid(),title:'',template:'',stage:'New guest',days:0,channel:'sms',enabled:true,version:0};
   if(existing)s.ruleHistory.unshift(structuredClone(r));else s.rules.push(r);
   if(a.stage!==undefined){if(!stages.includes(String(a.stage))||['Completed','Regular attendee'].includes(String(a.stage)))throw Error('Choose an active assimilation stage.');r.stage=String(a.stage);}
   r.title=reqText(a.title,100);r.template=reqText(a.template,5000);const days=Number(a.days);if(!Number.isInteger(days)||days<0||days>90)throw Error('Delay must be 0–90 days.');r.days=days;if(Object.hasOwn(a,'recurrence'))r.recurrence=validateRecurrence(a.recurrence);
   if(a.channel!=='sms'&&a.channel!=='email')throw Error('Invalid channel.');r.channel=a.channel;r.enabled=isBool(a.enabled);r.version++;
   s.messages.filter(m=>m.ruleId===r.id&&!submitted(s,m)&&(m.status==='pending'||m.status==='approved')).forEach(m=>change(m,s,'held'));label=`Saved ${r.title} version ${r.version}; affected drafts held for review`;
+ } else if(a.type==='rule.delete'){
+  const r=find(s.rules,a.id);if(a.version!==r.version)throw Error('This step changed. Reopen it before deleting.');
+  s.ruleHistory.unshift(structuredClone(r));s.rules=s.rules.filter(rule=>rule.id!==r.id);
+  for(const m of s.messages.filter(message=>message.ruleId===r.id)){
+   // Keep attempted messages intact as delivery history; cancel only work still waiting.
+   const attempted=s.deliveries.some(d=>d.messageId===m.id&&(d.attemptedAt||d.providerId||['sending','sent','delivered','failed','uncertain','simulated'].includes(d.status)));
+   if(!attempted&&m.status!=='cancelled'){change(m,s,'cancelled');m.reason='Step deleted';}
+   s.deliveries.filter(d=>d.messageId===m.id&&(d.status==='queued'||d.status==='cancelled'&&d.reason==='Previous approval invalidated')).forEach(d=>{d.status='cancelled';d.reason='Step deleted';});
+  }
+  label=`Deleted assimilation step: ${r.title}; future follow-ups cancelled; delivery history retained`;
  } else if(a.type==='rule.restore'){
   const r=find(s.rules,a.id);const old=s.ruleHistory.find(h=>h.id===r.id&&h.version===a.version);if(!old)throw Error('Previous version unavailable.');s.ruleHistory.unshift(structuredClone(r));Object.assign(r,structuredClone(old),{recurrence:old.recurrence?structuredClone(old.recurrence):undefined,version:r.version+1});s.messages.filter(m=>m.ruleId===r.id&&!submitted(s,m)&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));label='Restored rule as a new version; affected drafts held';
  } else if(a.type==='settings.admin-phone'){
