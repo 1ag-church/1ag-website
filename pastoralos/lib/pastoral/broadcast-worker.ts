@@ -12,6 +12,29 @@ const hex=(b:ArrayBuffer)=>Array.from(new Uint8Array(b),x=>x.toString(16).padSta
 const sha=async(s:string)=>hex(await crypto.subtle.digest('SHA-256',encoder.encode(s)));
 async function hmac(key:Uint8Array,data:string):Promise<Uint8Array>{const k=await crypto.subtle.importKey('raw',key as BufferSource,{name:'HMAC',hash:'SHA-256'},false,['sign']);return new Uint8Array(await crypto.subtle.sign('HMAC',k,encoder.encode(data)));}
 export class ProviderRejected extends Error {}
+const sesRejectionReasons:Record<string,string>={
+ AccessDenied:'AWS denied the sending permission.',AccessDeniedException:'AWS denied the sending permission.',
+ SignatureDoesNotMatch:'AWS could not verify the signed request.',InvalidSignatureException:'AWS could not verify the signed request.',
+ UnrecognizedClientException:'AWS did not recognize the sending credentials.',InvalidClientTokenId:'AWS did not recognize the sending credentials.',
+ ExpiredToken:'The AWS session has expired.',ExpiredTokenException:'The AWS session has expired.',
+ RequestExpired:'AWS rejected the request timestamp.',RequestTimeTooSkewed:'AWS rejected the request timestamp.',
+ IncompleteSignature:'The AWS request signature is incomplete.',MissingAuthenticationToken:'AWS did not receive authentication.',
+ MessageRejected:'SES rejected the message.',MailFromDomainNotVerifiedException:'The sending domain is not verified.',
+ AccountSuspendedException:'SES has suspended sending.',SendingPausedException:'SES sending is paused.',
+ TooManyRequestsException:'The SES sending limit was reached.',BadRequestException:'SES rejected the email request format.',
+ NotFoundException:'An SES sending resource was not found.',LimitExceededException:'An SES account limit was reached.',
+};
+async function sesRejection(response:Response):Promise<string>{
+ const fallback=`Amazon SES rejected the email (${response.status}).`;
+ // Keep only known error codes and a request ID, never AWS's raw message or payload.
+ let body:Record<string,unknown>={};const reader=response.body?.getReader();
+ if(reader)try{let size=0,text='';const decoder=new TextDecoder();while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>16384){text='';break;}text+=decoder.decode(part.value,{stream:true});}const parsed=JSON.parse(text+decoder.decode());if(parsed&&typeof parsed==='object')body=parsed;}catch{/* The HTTP rejection is still definitive if details cannot be read. */}finally{try{await reader.cancel();}catch{}}
+ const raw=response.headers.get('x-amzn-errortype')??body.__type??body.code??body.Code;
+ const code=typeof raw==='string'?raw.split('#').pop()!.split(':')[0]:'';
+ if(!Object.hasOwn(sesRejectionReasons,code))return fallback;
+ const requestId=response.headers.get('x-amzn-requestid');
+ return `${fallback} ${code}: ${sesRejectionReasons[code]}${requestId&&/^[a-zA-Z0-9-]{8,100}$/.test(requestId)?` AWS request ID: ${requestId}.`:''}`;
+}
 export async function sendSes(b:Pick<Broadcast,'subject'|'body'|'design'>,t:BroadcastTarget,config:NonNullable<BroadcastConfig['ses']>,fetcher:typeof fetch=fetch,now=new Date()):Promise<string>{
  if(!deliveryConnection({ses:config}).email)throw new ProviderRejected('Amazon SES is not configured.');
  const host=`email.${config.region}.amazonaws.com`,path='/v2/email/outbound-emails',stamp=now.toISOString().replace(/[:-]|\.\d{3}/g,''),day=stamp.slice(0,8);
@@ -24,7 +47,7 @@ export async function sendSes(b:Pick<Broadcast,'subject'|'body'|'design'>,t:Broa
  const signature=hex((await hmac(key,toSign)).buffer as ArrayBuffer);
  headers.authorization=`AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signed}, Signature=${signature}`;
  const response=await fetcher(`https://${host}${path}`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(12000),headers,body});
- if(!response.ok){await response.body?.cancel();if(response.status>=400&&response.status<500)throw new ProviderRejected(`Amazon SES rejected the email (${response.status}).`);throw Error('SES acceptance unknown.');}
+ if(!response.ok){if(response.status>=400&&response.status<500)throw new ProviderRejected(await sesRejection(response));await response.body?.cancel();throw Error('SES acceptance unknown.');}
  const result=await response.json();if(typeof result.MessageId!=='string'||!result.MessageId)throw Error('SES acceptance unknown.');return result.MessageId;
 }
 export async function sendBroadcastSms(b:Pick<Broadcast,'body'>,t:BroadcastTarget,config:NonNullable<BroadcastConfig['twilio']>,fetcher:typeof fetch=fetch):Promise<string>{
