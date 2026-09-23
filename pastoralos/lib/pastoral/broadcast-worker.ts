@@ -33,7 +33,16 @@ async function sesRejection(response:Response):Promise<string>{
  const code=typeof raw==='string'?raw.split('#').pop()!.split(':')[0]:'';
  if(!Object.hasOwn(sesRejectionReasons,code))return fallback;
  const requestId=response.headers.get('x-amzn-requestid');
- return `${fallback} ${code}: ${sesRejectionReasons[code]}${requestId&&/^[a-zA-Z0-9-]{8,100}$/.test(requestId)?` AWS request ID: ${requestId}.`:''}`;
+ let permission='';const message=body.message??body.Message;
+ if(['AccessDenied','AccessDeniedException'].includes(code)&&typeof message==='string'){
+  const action=message.match(/\bses:[A-Za-z]{1,80}\b/)?.[0];
+  const resource=message.match(/arn:aws:ses:([a-z0-9-]+):\d{12}:([a-z-]+)\/([^\s'"`]+)/);
+  const cause=['explicit deny in a service control policy','no service control policy allows','explicit deny in an identity-based policy','no identity-based policy allows','explicit deny in a permissions boundary','no permissions boundary allows','explicit deny in a resource-based policy','no resource-based policy allows'].find(reason=>message.includes(reason));
+  if(action)permission+=` Required action: ${action}.`;
+  if(resource)permission+=` Resource: ${resource[2]} in ${resource[1]}${['1ag.tv','info@1ag.tv'].includes(resource[3])?` (${resource[3]})`:''}.`;
+  if(cause)permission+=` Restriction: ${cause}.`;
+ }
+ return `${fallback} ${code}: ${sesRejectionReasons[code]}${permission}${requestId&&/^[a-zA-Z0-9-]{8,100}$/.test(requestId)?` AWS request ID: ${requestId}.`:''}`;
 }
 export async function sendSes(b:Pick<Broadcast,'subject'|'body'|'design'>,t:BroadcastTarget,config:NonNullable<BroadcastConfig['ses']>,fetcher:typeof fetch=fetch,now=new Date()):Promise<string>{
  if(!deliveryConnection({ses:config}).email)throw new ProviderRejected('Amazon SES is not configured.');

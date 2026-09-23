@@ -11,6 +11,10 @@ test('SES header errors work even when response body is not JSON',async()=>{
  const reason=await rejected(new Response('private diagnostic detail',{status:403,headers:{'x-amzn-errortype':'AccessDeniedException:http'}}));
  assert.match(reason,/AccessDeniedException/);assert.doesNotMatch(reason,/private diagnostic/);
 });
+test('permission diagnostics retain the action and restriction without private resource or principal values',async()=>{
+ const reason=await rejected(Response.json({__type:'AccessDeniedException',message:"User arn:aws:iam::123456789012:user/private-person cannot perform ses:SendRawEmail on resource arn:aws:ses:us-east-2:123456789012:identity/private@example.com because no identity-based policy allows it"},{status:403}));
+ assert.match(reason,/Required action: ses:SendRawEmail/);assert.match(reason,/Resource: identity in us-east-2/);assert.match(reason,/no identity-based policy allows/);assert.doesNotMatch(reason,/123456789012|private-person|private@example/);
+});
 test('unknown codes, unsafe request IDs, and oversized bodies are not exposed',async()=>{
  assert.equal(await rejected(Response.json({code:'private@example.com'},{status:403})),'Amazon SES rejected the email (403).');
  assert.equal(await rejected(Response.json({code:'constructor'},{status:403})),'Amazon SES rejected the email (403).');
