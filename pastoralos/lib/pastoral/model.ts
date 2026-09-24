@@ -17,6 +17,29 @@ export type State = { smsSuppressions?:{phone:string;at:string;messageSid:string
 export type Action = {type:string; [key:string]:unknown};
 export const isAssimilating=(p:Person)=>p.assimilation??!['Contact','Regular attendee'].includes(p.stage);
 export const stages=['New guest','Welcome','Check-in','Returning guest','Starting Point invited','Registered','Completed','Regular attendee'];
+// Store a stable step identity; titles can change without moving people or restarting delays.
+export const assimilationStepValue=(rule:Rule)=>`step:${rule.id}`;
+export function assimilationStep(s:State,p:Person):Rule|undefined {
+ if(!isAssimilating(p)||p.completedAt||['Completed','Regular attendee'].includes(p.stage))return undefined;
+ if(p.stage.startsWith('step:'))return s.rules.find(r=>assimilationStepValue(r)===p.stage);
+ // Older workspaces used fixed stages. Only resolve an unambiguous legacy mapping.
+ const matches=s.rules.filter(r=>r.stage===p.stage);return matches.length===1?matches[0]:undefined;
+}
+export function assimilationStepLabel(s:State,p:Person){
+ if(!isAssimilating(p))return p.stage;
+ if(p.completedAt||p.stage==='Completed')return 'Completed';
+ return assimilationStep(s,p)?.title??'Choose a step';
+}
+export function assimilationCategories(s:State){
+ const people=s.people.filter(p=>!p.archived&&isAssimilating(p));
+ const columns=s.rules.map(r=>({id:assimilationStepValue(r),title:r.title,paused:!r.enabled,people:people.filter(p=>assimilationStep(s,p)?.id===r.id)}));
+ const unassigned=people.filter(p=>!p.completedAt&&p.stage!=='Completed'&&!assimilationStep(s,p));
+ const completed=people.filter(p=>p.completedAt||p.stage==='Completed');
+ if(unassigned.length)columns.push({id:'unassigned',title:'Choose a step',paused:false,people:unassigned});
+ if(completed.length)columns.push({id:'completed',title:'Completed',paused:false,people:completed});
+ return columns;
+}
+function firstAssimilationStep(s:State){return s.rules[0]?assimilationStepValue(s.rules[0]):'Unassigned';}
 export const uid=()=>crypto.randomUUID();
 export function initialState(now=new Date()):State {
  const date=(days:number)=>new Date(now.getTime()+days*86400000).toISOString();
@@ -106,7 +129,7 @@ export function eligible(s:State,m:Message,t:Target):string|null{
  if(p.paused)return 'Person paused';
  if(m.program==='prayer'){if(m.channel!=='sms')return 'Prayer chain uses text messages only';const prayer=s.prayers.find(p=>p.id===m.prayerId);if(!prayer||prayer.sharing!=='shareable'||prayer.state==='closed')return 'Sharing permission unavailable';if(!p.prayerMember||!channelPermissions(p).sms)return 'Prayer membership or permission withdrawn';}
  else {if(!isAssimilating(p))return 'Not enrolled in assimilation';if(p.completedAt||p.stage==='Completed'||p.stage==='Regular attendee')return 'Guest sequence ended';if(!(channelPermissions(p)[m.channel]))return 'Contact permission unavailable';}
- if(m.ruleId){const rule=s.rules.find(r=>r.id===m.ruleId);if(!rule)return 'Step deleted';if(!rule.enabled)return 'Rule paused';if(p.stage!==rule.stage)return 'Guest step changed';const issue=recurringIssue(s,m);if(issue)return issue;}
+ if(m.ruleId){const rule=s.rules.find(r=>r.id===m.ruleId);if(!rule)return 'Step deleted';if(!rule.enabled)return 'Rule paused';if(assimilationStep(s,p)?.id!==rule.id)return 'Guest step changed';const issue=recurringIssue(s,m);if(issue)return issue;}
  if(m.eventId){const e=s.events.find(e=>e.id===m.eventId);if(!e||e.cancelled||e.version!==m.eventVersion)return 'Event changed';}
  return null;
 }
@@ -128,7 +151,7 @@ export function dispatchCheck(s:State,m:Message,t:Target,now=new Date(),live=fal
 function makeDraft(s:State,p:Person,r:Rule,now:string){
  if(!isAssimilating(p))return false;
  const instant=new Date(now),anchor=p.stageEnteredAt??p.firstVisit,occurrence=dueOccurrence(anchor,r,instant);
- if(!occurrence||p.paused||p.archived||p.completedAt||p.stage!==r.stage||!r.enabled)return false;
+ if(!occurrence||p.paused||p.archived||p.completedAt||assimilationStep(s,p)?.id!==r.id||!r.enabled)return false;
  const previous=s.messages.filter(m=>m.personId===p.id&&m.ruleId===r.id);
  if(r.recurrence){
   if(previous.some(m=>m.occurrence?.anchor===anchor&&m.occurrence.dueAt===occurrence.dueAt))return false;
@@ -137,7 +160,7 @@ function makeDraft(s:State,p:Person,r:Rule,now:string){
  const dest=r.channel==='sms'?p.phone:p.email;if(!dest||!(channelPermissions(p)[r.channel]))return false;
  s.messages.unshift({id:uid(),program:'guest',personId:p.id,ruleId:r.id,...(r.recurrence?{occurrence}:{}),subject:r.title,body:r.template.replaceAll('{firstName}',p.name.split(' ')[0]),channel:r.channel,status:'pending',revision:1,createdAt:now,scheduledAt:now,targets:[{personId:p.id,destination:dest,context:p.context}],reason:r.recurrence?`${r.title} · ${recurrenceSummary(r.recurrence)}`:r.title});return true;
 }
-export function ruleImpact(s:State,ruleId:string){return {people:s.people.filter(p=>!p.archived&&!p.paused&&p.stage===s.rules.find(r=>r.id===ruleId)?.stage).length,messages:s.messages.filter(m=>m.ruleId===ruleId&&!submitted(s,m)&&(m.status==='pending'||m.status==='approved')).length};}
+export function ruleImpact(s:State,ruleId:string){return {people:s.people.filter(p=>!p.archived&&!p.paused&&assimilationStep(s,p)?.id===ruleId).length,messages:s.messages.filter(m=>m.ruleId===ruleId&&!submitted(s,m)&&(m.status==='pending'||m.status==='approved')).length};}
 export function applyAction(previous:State,a:Action,actor:string,now=new Date()):State{
  const s:State=structuredClone(previous),at=now.toISOString();let label='';
  if(a.type==='person.save'){
@@ -149,23 +172,23 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
   const duplicate=s.people.find(p=>p.id!==existing?.id&&!p.archived&&((email&&p.email===email)||(normalized&&p.phone===normalized)));
   if(duplicate&&!a.allowShared)throw Error(`This contact matches ${duplicate.name}. Open that record or confirm this is a separate person with a shared contact.`);
   const assimilation=existing?isAssimilating(existing):a.enroll===true;
-  const stage=existing?.stage??(assimilation?'New guest':'Contact');
+  const stage=existing?.stage??(assimilation?firstAssimilationStep(s):'Contact');
   const p:Person={...existing,id:existing?.id??uid(),name,email,phone:normalized,address:validText(v.address??'',500),household:validText(v.household??'',100),stage,assimilation,paused:existing?.paused??false,archived:existing?.archived??false,prayerMember:isBool(v.prayerMember??false),guestSms:isBool(v.guestSms??false),guestEmail:isBool(v.guestEmail??false),prayerSms:isBool(v.prayerSms??false),firstVisit:existing?.firstVisit??at,stageEnteredAt:existing?.stageEnteredAt??existing?.firstVisit??at,source:existing?.source??'Staff entry',note:validText(v.note??'',2000),context:(existing?.context??0)+1,sample:existing?.sample??false,completedAt:existing?.completedAt};
   if(v.channelPermissions!==undefined)setChannelPermissions(p,v.channelPermissions);
   if(existing){s.people[s.people.indexOf(existing)]=p;s.messages.filter(m=>m.targets.some(t=>t.personId===p.id)&&m.program==='guest'&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));s.deliveries.filter(d=>d.target.personId===p.id&&d.status==='queued').forEach(d=>{d.status='suppressed';d.reason='Person or permissions updated';});}
-  else {s.people.unshift(p);if(a.enroll===true){const r=s.rules.find(r=>r.id==='welcome'&&r.enabled);if(r)makeDraft(s,p,r,at);}}
+  else {s.people.unshift(p);if(a.enroll===true){const r=assimilationStep(s,p);if(r)makeDraft(s,p,r,at);}}
   label=`${existing?'Updated':'Added'} ${name}; contact permissions recorded`;
   if(existing&&typeof a.enroll==='boolean'&&a.enroll!==isAssimilating(existing))return applyAction(s,{type:'person.enrollment',id:p.id,enroll:a.enroll},actor,now);
  } else if(a.type==='person.enrollment'){
   const p=find(s.people,a.id),enroll=isBool(a.enroll);
   if(enroll===isAssimilating(p))return s;
   if(enroll&&p.completedAt)throw Error('This person completed assimilation. Their completed journey is retained.');
-  p.assimilation=enroll;p.stage=enroll?'New guest':'Contact';p.stageEnteredAt=at;
+  p.assimilation=enroll;p.stage=enroll?firstAssimilationStep(s):'Contact';p.stageEnteredAt=at;
   s.messages.filter(m=>m.program==='guest'&&(m.personId===p.id||m.targets.some(t=>t.personId===p.id))&&m.status!=='cancelled').forEach(m=>change(m,s,'cancelled'));
-  if(enroll){const r=s.rules.find(r=>r.id==='welcome'&&r.enabled);if(r)makeDraft(s,p,r,at);}
+  if(enroll){const r=assimilationStep(s,p);if(r)makeDraft(s,p,r,at);}
   label=`${enroll?'Enrolled':'Removed'} ${p.name} ${enroll?'in':'from'} assimilation`;
  } else if(a.type==='person.status'){
-  const p=find(s.people,a.id);if(a.field==='paused')p.paused=isBool(a.value);else if(a.field==='archived')p.archived=isBool(a.value);else if(a.field==='prayerMember')p.prayerMember=isBool(a.value);else if(a.field==='stage'){if(!isAssimilating(p))throw Error('Enroll this person in assimilation first.');const stage=reqText(a.value,60);if(!stages.includes(stage)||stage==='Completed')throw Error('Record attendance through Events to complete Starting Point.');if(p.completedAt)throw Error('Completed guests require a separately reviewed restart.');if(p.stage!==stage){p.stage=stage;p.stageEnteredAt=at;}}else throw Error('Unknown person action.');
+  const p=find(s.people,a.id);if(a.field==='paused')p.paused=isBool(a.value);else if(a.field==='archived')p.archived=isBool(a.value);else if(a.field==='prayerMember')p.prayerMember=isBool(a.value);else if(a.field==='stage'){if(!isAssimilating(p))throw Error('Enroll this person in assimilation first.');const stage=reqText(a.value,60);if(!s.rules.some(r=>assimilationStepValue(r)===stage))throw Error('Choose an existing assimilation step.');if(p.completedAt)throw Error('Completed guests require a separately reviewed restart.');if(p.stage!==stage){p.stage=stage;p.stageEnteredAt=at;}}else throw Error('Unknown person action.');
   s.messages.filter(m=>m.personId===p.id&&(m.status==='approved'||m.status==='pending')).forEach(m=>change(m,s,'held'));
   s.deliveries.filter(d=>d.target.personId===p.id&&d.status==='queued').forEach(d=>{const m=find(s.messages,d.messageId);const reason=eligible(s,m,d.target);if(reason){d.status='suppressed';d.reason=reason;}});label=`Updated ${p.name}: ${String(a.field)}`;
  } else if(a.type==='guest.intake'){
@@ -177,7 +200,7 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
    else {const submission={name,email,phone:normal,category,address:validText(a.address??'',500),sms:isBool(a.sms),emailPermission:isBool(a.emailPermission),starting:a.starting===true,jesus:a.jesus===true,prayer:validText(a.prayer??'',6000)};s.tasks.unshift({id:uid(),title:'Review a possible duplicate connection card',detail:`Match identity before changing a profile. Original submission (private):\n${JSON.stringify(submission,null,2)}`,done:false,private:true});s.audit.unshift({id:uid(),at,actor,action:'Connection card held for identity review; no profile overwritten'});}return s;
   }
   const intermediate=applyAction(s,{type:'person.save',person:{name,email,phone,address:validText(a.address??'',500),note:'Connection card submission',guestSms:isBool(a.sms),guestEmail:isBool(a.emailPermission),prayerMember:false,prayerSms:false},enroll:category==='First visit'},actor,now);
-  const person=intermediate.people[0];person.assimilation=category!=='Regular attendee';(intermediate.visits??=[]).push({personId:person.id,at,source:'Connection card'});person.source='Connection card preview';person.stage=category==='Regular attendee'?'Regular attendee':category==='Returning guest'?'Returning guest':'New guest';
+  const person=intermediate.people[0];person.assimilation=category!=='Regular attendee';(intermediate.visits??=[]).push({personId:person.id,at,source:'Connection card'});person.source='Connection card preview';person.stage=category==='Regular attendee'?'Regular attendee':firstAssimilationStep(intermediate);
   if(a.jesus===true)intermediate.tasks.unshift({id:uid(),personId:person.id,title:'Interest in following Jesus',detail:'Connection card requested a personal conversation about following Jesus.',done:false,private:true});
   if(a.starting===true)intermediate.tasks.unshift({id:uid(),personId:person.id,title:'Starting Point interest',detail:'Prepare an invitation to a confirmed event. Interest is not registration.',done:false,private:false});
   const prayer=validText(a.prayer??'',6000);if(prayer)intermediate.prayers.unshift({id:uid(),name,original:prayer,sharing:'private',state:'review',createdAt:at,sample:false});
@@ -207,13 +230,13 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
  } else if(a.type==='message.cancel'){
   const m=find(s.messages,a.id);change(m,s,'cancelled');label='Draft dismissed; this occurrence will not be prepared again';
  } else if(a.type==='message.hold'||a.type==='message.reopen'){
-  const m=find(s.messages,a.id);change(m,s,a.type==='message.hold'?'held':'pending');if(a.type==='message.reopen'){if(m.ruleId){const rule=find(s.rules,m.ruleId),person=find(s.people,m.personId);if(!rule.enabled)throw Error('Enable this rule before refreshing its draft.');if(person.stage!==rule.stage)throw Error('This draft does not match the current guest step. Prepare a new follow-up.');m.body=rule.template.replaceAll('{firstName}',person.name.split(' ')[0]);m.subject=rule.title;m.channel=rule.channel;const repeatIssue=recurringIssue(s,{...m,scheduledAt:at},now);if(repeatIssue)throw Error(repeatIssue);}if(m.eventId){const event=find(s.events,m.eventId);if(event.cancelled||new Date(event.date)<=now)throw Error('Choose an upcoming event before refreshing this invitation.');m.eventVersion=event.version;const person=find(s.people,m.personId);m.body=`Hi ${person.name.split(' ')[0]}! You're invited to ${event.title} at ${event.location} on ${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'full',timeStyle:'short'}).format(new Date(event.date))} (Central time). ${event.description}`;}m.scheduledAt=at;m.targets=m.targets.map(t=>{const p=s.people.find(p=>p.id===t.personId);return p?{personId:p.id,destination:m.channel==='sms'?p.phone:p.email,context:p.context}:t;});}label=a.type==='message.hold'?'Message held; approval revoked':'Draft refreshed with current contact details; fresh approval required';
+  const m=find(s.messages,a.id);change(m,s,a.type==='message.hold'?'held':'pending');if(a.type==='message.reopen'){if(m.ruleId){const rule=find(s.rules,m.ruleId),person=find(s.people,m.personId);if(!rule.enabled)throw Error('Enable this rule before refreshing its draft.');if(assimilationStep(s,person)?.id!==rule.id)throw Error('This draft does not match the current guest step. Prepare a new follow-up.');m.body=rule.template.replaceAll('{firstName}',person.name.split(' ')[0]);m.subject=rule.title;m.channel=rule.channel;const repeatIssue=recurringIssue(s,{...m,scheduledAt:at},now);if(repeatIssue)throw Error(repeatIssue);}if(m.eventId){const event=find(s.events,m.eventId);if(event.cancelled||new Date(event.date)<=now)throw Error('Choose an upcoming event before refreshing this invitation.');m.eventVersion=event.version;const person=find(s.people,m.personId);m.body=`Hi ${person.name.split(' ')[0]}! You're invited to ${event.title} at ${event.location} on ${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'full',timeStyle:'short'}).format(new Date(event.date))} (Central time). ${event.description}`;}m.scheduledAt=at;m.targets=m.targets.map(t=>{const p=s.people.find(p=>p.id===t.personId);return p?{personId:p.id,destination:m.channel==='sms'?p.phone:p.email,context:p.context}:t;});}label=a.type==='message.hold'?'Message held; approval revoked':'Draft refreshed with current contact details; fresh approval required';
  } else if(a.type==='rule.save'){
   const existing=a.id?s.rules.find(r=>r.id===a.id):undefined;if(a.id&&!existing)throw Error('Step no longer exists.');
   if(existing&&a.version!==undefined&&a.version!==existing.version)throw Error('This step changed. Reopen it before saving.');
   const r:Rule=existing??{id:uid(),title:'',template:'',stage:'New guest',days:0,channel:'sms',enabled:true,version:0};
-  if(existing)s.ruleHistory.unshift(structuredClone(r));else s.rules.push(r);
-  if(a.stage!==undefined){if(!stages.includes(String(a.stage))||['Completed','Regular attendee'].includes(String(a.stage)))throw Error('Choose an active assimilation stage.');r.stage=String(a.stage);}
+  if(existing)s.ruleHistory.unshift(structuredClone(r));else {r.stage=assimilationStepValue(r);s.rules.push(r);}
+  if(a.stage!==undefined){if(String(a.stage)!==assimilationStepValue(r)&&(!stages.includes(String(a.stage))||['Completed','Regular attendee'].includes(String(a.stage))))throw Error('Choose an active assimilation stage.');r.stage=String(a.stage);}
   r.title=reqText(a.title,100);r.template=reqText(a.template,5000);const days=Number(a.days);if(!Number.isInteger(days)||days<0||days>90)throw Error('Delay must be 0–90 days.');r.days=days;if(Object.hasOwn(a,'recurrence'))r.recurrence=validateRecurrence(a.recurrence);
   if(a.channel!=='sms'&&a.channel!=='email')throw Error('Invalid channel.');r.channel=a.channel;r.enabled=isBool(a.enabled);r.version++;
   s.messages.filter(m=>m.ruleId===r.id&&!submitted(s,m)&&(m.status==='pending'||m.status==='approved')).forEach(m=>change(m,s,'held'));label=`Saved ${r.title} version ${r.version}; affected drafts held for review`;
@@ -247,7 +270,7 @@ export function applyAction(previous:State,a:Action,actor:string,now=new Date())
   const n:Event={id:e?.id??uid(),title:reqText(v.title,100),kind:v.kind,date:date.toISOString(),location:reqText(v.location,200),description:validText(v.description??'',2000),cancelled:isBool(v.cancelled??false),version:(e?.version??0)+1,registered:e?.registered??[],attended:e?.attended??[],sample:e?.sample??false};if(e)s.events[s.events.indexOf(e)]=n;else s.events.push(n);s.messages.filter(m=>m.eventId===n.id&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));label='Event saved; linked invitations require review';
  } else if(a.type==='event.register'||a.type==='event.attend'){
   const e=find(s.events,a.eventId),p=find(s.people,a.personId);if(e.cancelled)throw Error('This event is cancelled.');if(!e.registered.includes(p.id))e.registered.push(p.id);
-  if(a.type==='event.attend'){if(new Date(e.date)>now)throw Error('Attendance can be recorded after the event starts.');if(!e.attended.includes(p.id))e.attended.push(p.id);if(e.kind==='starting'){p.stage='Completed';p.completedAt=at;s.messages.filter(m=>m.personId===p.id&&m.program==='guest'&&m.status!=='cancelled').forEach(m=>change(m,s,'cancelled'));}label=`Recorded ${p.name}'s attendance at ${e.title}`;}else {if(e.kind==='starting'&&isAssimilating(p)&&!p.completedAt){if(p.stage!=='Registered'){p.stage='Registered';p.stageEnteredAt=at;}s.messages.filter(m=>m.personId===p.id&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));}label=`Registered ${p.name} for ${e.title}`;}
+  if(a.type==='event.attend'){if(new Date(e.date)>now)throw Error('Attendance can be recorded after the event starts.');if(!e.attended.includes(p.id))e.attended.push(p.id);if(e.kind==='starting'){p.stage='Completed';p.completedAt=at;s.messages.filter(m=>m.personId===p.id&&m.program==='guest'&&m.status!=='cancelled').forEach(m=>change(m,s,'cancelled'));}label=`Recorded ${p.name}'s attendance at ${e.title}`;}else {if(e.kind==='starting'&&isAssimilating(p)&&!p.completedAt&&!p.stage.startsWith('step:')){if(p.stage!=='Registered'){p.stage='Registered';p.stageEnteredAt=at;}s.messages.filter(m=>m.personId===p.id&&m.status!=='cancelled').forEach(m=>change(m,s,'held'));}label=`Registered ${p.name} for ${e.title}`;}
  } else if(a.type==='event.invite'){
   const e=find(s.events,a.eventId),p=find(s.people,a.personId);if(e.cancelled||new Date(e.date)<now)throw Error('Choose an upcoming event.');if(!isAssimilating(p)||p.completedAt||p.stage==='Completed'||p.stage==='Regular attendee')throw Error('Guest follow-up is complete.');const channel:Channel=channelPermissions(p).email&&p.email?'email':'sms';if(!(channel==='sms'?channelPermissions(p).sms&&p.phone:channelPermissions(p).email&&p.email))throw Error('Contact permission required.');
   const textDate=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'full',timeStyle:'short'}).format(new Date(e.date));s.messages.unshift({id:uid(),program:'guest',personId:p.id,eventId:e.id,eventVersion:e.version,subject:`You're invited: ${e.title}`,body:`Hi ${p.name.split(' ')[0]}! You're invited to ${e.title} at ${e.location} on ${textDate} (Central time). ${e.description}`,channel,status:'pending',revision:1,createdAt:at,scheduledAt:at,targets:[{personId:p.id,destination:channel==='sms'?p.phone:p.email,context:p.context}],reason:`Invitation • ${e.title}`});label='Event invitation prepared for approval';
