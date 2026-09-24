@@ -20,7 +20,7 @@ export function smsThreads(state:CommunicationsState,now=new Date()):SmsThread[]
  }
  for(const b of state.broadcasts??[]){
   if(b.channel!=='sms'||b.status==='draft')continue;
-  for(const t of b.targets)add(t.destination,{id:b.id+':'+t.personId,body:b.body,at:t.attemptedAt??b.createdAt,direction:'out',status:b.status==='cancelled'&&t.status==='pending'?'Cancelled':t.status==='pending'&&b.scheduledAt>now.toISOString()?'Scheduled':statusLabel(t.status),detail:t.reason,automated:false,line:b.smsLine??'legacy',scheduledAt:b.scheduledAt},t.providerId);
+  for(const t of b.targets)add(t.destination,{id:b.id+':'+t.personId,body:b.body,at:t.attemptedAt??b.createdAt,direction:'out',status:b.status==='cancelled'&&t.status==='pending'?'Cancelled':t.status==='pending'&&b.scheduledAt>now.toISOString()?'Scheduled':statusLabel(t.status),detail:t.reason,automated:!!b.serving,line:b.smsLine??'legacy',scheduledAt:b.scheduledAt},t.providerId);
  }
  for(const d of state.deliveries){
   const m=state.messages.find(m=>m.id===d.messageId);if(!m||m.channel!=='sms'||d.status==='simulated')continue;

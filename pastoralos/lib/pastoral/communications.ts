@@ -1,3 +1,4 @@
+import {servingReminderIssue,type ServingReminder} from './serving.ts';
 import {channelPermissions,setChannelPermissions} from './contact-permissions.ts';
 import {validateDesign,renderEmail,type EmailDesign} from './email-design.ts';
 import {isAssimilating,applyAction,inHours, type State, type Person, type Channel, type Action} from './model.ts';
@@ -7,7 +8,7 @@ export type ContactPreference = {email:boolean; sms:boolean};
 export type DirectoryPerson = Person & {groups?:string[]; tags?:string[]; groupPreferences?:Record<string,ContactPreference>; contactPermissions?:ContactPreference};
 export type BroadcastTarget = {personId:string; destination:string; context:number; status:'pending'|'sending'|'sent'|'skipped'|'failed'|'uncertain'; reason?:string; providerId?:string; attemptedAt?:string};
 export type SkippedRecipient = {personId:string;name:string;reason:string};
-export type Broadcast = { smsLine?:'general'; skippedRecipients?:SkippedRecipient[];id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
+export type Broadcast = { serving?:ServingReminder; smsLine?:'general'; skippedRecipients?:SkippedRecipient[];id:string; revision:number; subject:string; body:string; channel:Channel; groupIds:string[]; personIds?:string[]; design?:EmailDesign; scheduledAt:string; createdAt:string; status:'draft'|'queued'|'cancelled'; targets:BroadcastTarget[]; approval?:{actor:string;at:string;fingerprint:string}};
 export type CommunicationsState = State & {directoryGroups?:Group[]; broadcasts?:Broadcast[]; smsThreads?:Record<string,{readThrough?:string;doneThrough?:string;done?:boolean}>; emailTemplates?:{id:string;name:string;design:EmailDesign}[]};
 export type DeliveryConnection = {sms:boolean; email:boolean; emailFrom?:string; emailReplyTo?:string; emailReason?:string; smsReason?:string; smsFrom?:string};
 export const builtinGroups:Group[]=[{id:'prayer',name:'Prayer chain'},{id:'guests',name:'Assimilation'}];
@@ -41,6 +42,7 @@ function canonical(value:unknown):unknown {if(Array.isArray(value))return value.
 export function broadcastFingerprint(b:Broadcast):string{return JSON.stringify([b.id,b.revision,b.subject,b.body,b.channel,[...b.groupIds].sort(),b.scheduledAt,b.targets.map(t=>[t.personId,t.destination,t.context]),...(b.personIds?.length||b.design?[b.personIds??[],canonical(b.design??null)]:[])]);}
 export function broadcastIssue(s:CommunicationsState,b:Broadcast,t:BroadcastTarget,now=new Date()):string|null {
  if(b.status!=='queued'||!b.approval||b.approval.fingerprint!==broadcastFingerprint(b))return 'Message changed after sending was requested';
+ if(b.serving){const issue=servingReminderIssue(s,b.serving,now);if(issue)return issue;}
  if(s.settings.paused)return 'Workflows paused';
  if(s.settings.prayerPaused&&b.groupIds.includes('prayer'))return 'Prayer chain paused';
  if(s.settings.guestPaused&&b.groupIds.includes('guests'))return 'Guest follow-up paused';
