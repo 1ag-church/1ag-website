@@ -1,3 +1,4 @@
+import {careData} from './pastoral-care.ts';
 import {channelPermissions,setChannelPermissions,type ChannelPermissions} from './contact-permissions.ts';
 import { normalizeContactPhone } from './people-csv.ts';
 export type Program = 'guest' | 'prayer';
@@ -128,7 +129,7 @@ export function eligible(s:State,m:Message,t:Target):string|null{
  if((m.channel==='sms'?p.phone:p.email)!==t.destination)return 'Destination changed';
  if(p.paused)return 'Person paused';
  if(m.program==='prayer'){if(m.channel!=='sms')return 'Prayer chain uses text messages only';const prayer=s.prayers.find(p=>p.id===m.prayerId);if(!prayer||prayer.sharing!=='shareable'||prayer.state==='closed')return 'Sharing permission unavailable';if(!p.prayerMember||!channelPermissions(p).sms)return 'Prayer membership or permission withdrawn';}
- else {if(!isAssimilating(p))return 'Not enrolled in assimilation';if(p.completedAt||p.stage==='Completed'||p.stage==='Regular attendee')return 'Guest sequence ended';if(!(channelPermissions(p)[m.channel]))return 'Contact permission unavailable';}
+ else {if(careData(s).replyHolds[p.id])return 'Guest reply needs personal attention';if(!isAssimilating(p))return 'Not enrolled in assimilation';if(p.completedAt||p.stage==='Completed'||p.stage==='Regular attendee')return 'Guest sequence ended';if(!(channelPermissions(p)[m.channel]))return 'Contact permission unavailable';}
  if(m.ruleId){const rule=s.rules.find(r=>r.id===m.ruleId);if(!rule)return 'Step deleted';if(!rule.enabled)return 'Rule paused';if(assimilationStep(s,p)?.id!==rule.id)return 'Guest step changed';const issue=recurringIssue(s,m);if(issue)return issue;}
  if(m.eventId){const e=s.events.find(e=>e.id===m.eventId);if(!e||e.cancelled||e.version!==m.eventVersion)return 'Event changed';}
  return null;

@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {openCare} from './pastoral-care';
 import {Check,PenLine,X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Textarea} from '@/components/ui/textarea';
@@ -48,6 +49,7 @@ export function PrayerReviewCard({state,prayerId,busy,run}:{state:State;prayerId
       </div>
     </>}
     {!needsApproval&&sent>0&&<p className="text-xs muted">The texting provider accepted {sent} of {deliveries.length} recipient messages.</p>}
+    <Button variant="outline" onClick={()=>openCare({mode:'case',source:{kind:'prayer',id:prayerId}})}>Create care follow-up</Button>
     {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
   </article>;
 }

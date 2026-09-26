@@ -1,5 +1,7 @@
+import {ensureCare} from './pastoral-care.ts';
+import {applyServingReply} from './serving.ts';
 import {channelPermissions,setChannelPermissions} from './contact-permissions.ts';
-import { type State } from './model.ts';
+import { isAssimilating, type State } from './model.ts';
 
 export type IncomingSms = {
   accountSid: string; messageSid: string; from: string; to: string;
@@ -43,6 +45,8 @@ export function applyIncomingSms(previous: State, event: IncomingSms, now = new 
       });
     }
   }
+  const servingReply=line==='general'&&!optOut&&applyServingReply(s,event.from,event.body,now);
+  if(line==='general'&&!optOut&&!servingReply&&people.length===1&&!people[0].archived&&isAssimilating(people[0])){const care=ensureCare(s);if(care.preferences.pauseOnReply)care.replyHolds[people[0].id]={at,messageId:id};}
   const body = event.body + (event.mediaCount ? `\n[${event.mediaCount} attachment(s) received. Media retrieval is not connected.]` : '');
   if (people.length === 1 && !people[0].archived) {
     s.inbox.unshift({ id, personId: people[0].id, body, at, program: 'unassigned', from: event.from, to:event.to, line, source: 'twilio' });
