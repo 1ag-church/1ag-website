@@ -1,10 +1,10 @@
-import {servingData,servingInstant,servingBody,servingSnapshot,servingRecipientIssue,type ServingReminder} from './serving.ts';
+import {ensureServingResponses,servingData,servingInstant,servingBody,servingSnapshot,servingRecipientIssue,type ServingReminder} from './serving.ts';
 import {broadcastFingerprint,type CommunicationsState,type Broadcast} from './communications.ts';
 import type {BroadcastStore} from './broadcast-worker.ts';
 
 /** Stable per-assignment keys prevent duplicate SMS on overlapping cron invocations. */
 export function prepareServingReminders(previous:CommunicationsState,now=new Date()):CommunicationsState{
- const s=structuredClone(previous),at=now.toISOString();let created=0;
+ const s=structuredClone(previous),at=now.toISOString();let created=0;ensureServingResponses(s);
  for(const service of servingData(s).services){if(service.cancelled)continue;
   for(const area of service.areas){if(!area.remindersEnabled)continue;const arrival=servingInstant(service.date,area.arrivalTime);
    // Never prepare anything for completed services, including after a pause/outage.

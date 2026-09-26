@@ -1,11 +1,13 @@
 import {addCalendar,type State,type Action,type Person} from './model.ts';
+import {availabilityIssue} from './pastoral-care.ts';
 import {channelPermissions} from './contact-permissions.ts';
 
 export type MinistryArea={id:string;name:string;description:string;arrivalTime:string;needed:number;personIds:string[];assignedAt:Record<string,string>;remindersEnabled:boolean;reminderMinutes:number[];createdAt:string;version:number};
 export type ServicePlan={id:string;title:string;date:string;time:string;areas:MinistryArea[];cancelled:boolean;version:number};
-export type ServingData={services:ServicePlan[]};
+export type ServingResponse={code:string;status:'pending'|'confirmed'|'declined';snapshot:string;at?:string};
+export type ServingData={services:ServicePlan[];responses?:Record<string,ServingResponse>};
 export type ServingState=State&{serving?:ServingData};
-export type ServingReminder={serviceId:string;areaId:string;personId:string;minutes:number;snapshot:string};
+export type ServingReminder={serviceId:string;areaId:string;personId:string;minutes:number;snapshot:string;invitation?:boolean};
 export const servingData=(s:State)=>(s as ServingState).serving??{services:[]};
 export const reminderChoices=[{minutes:10080,label:'1 week before'},{minutes:4320,label:'3 days before'},{minutes:1440,label:'1 day before'},{minutes:120,label:'2 hours before'},{minutes:60,label:'1 hour before'},{minutes:30,label:'30 minutes before'}];
 export const reminderLabel=(n:number)=>reminderChoices.find(x=>x.minutes===n)?.label??`${n} minutes before`;
@@ -27,18 +29,20 @@ export function servingRecipientIssue(s:State,p:Person|undefined):string|null{
  if(!p.phone)return 'Missing phone number';if(!/^\+[1-9]\d{7,14}$/.test(p.phone))return 'Invalid phone number';
  if(!channelPermissions(p).sms)return 'No text permission';if(s.smsSuppressions?.some(x=>x.phone===p.phone))return 'Opted out of texts';return null;
 }
-export function servingBody(s:State,service:ServicePlan,area:MinistryArea,p:Pick<Person,'name'>){
+export function servingBody(s:State,service:ServicePlan,area:MinistryArea,p:Pick<Person,'name'>&{id?:string}){
  const day=new Intl.DateTimeFormat('en-US',{timeZone:zone,weekday:'long',month:'short',day:'numeric'}).format(servingInstant(service.date,area.arrivalTime));
- return `Hi ${p.name.split(' ')[0]}! You're scheduled for ${area.name} at ${service.title} on ${day}. Please arrive at ${servingTime(area.arrivalTime)} Central.${area.description?` ${area.description}`:''} Thanks for serving! - ${s.settings.churchName||'1AG Church'}. Reply STOP to opt out.`;
+ return `Hi ${p.name.split(' ')[0]}! You're scheduled for ${area.name} at ${service.title} on ${day}. Please arrive at ${servingTime(area.arrivalTime)} Central.${area.description?` ${area.description}`:''} Thanks for serving! - ${s.settings.churchName||'1AG Church'}.${p.id&&servingData(s).responses?.[servingKey(service.id,area.id,p.id)]?` Reply YES ${servingData(s).responses![servingKey(service.id,area.id,p.id)].code} to confirm or NO ${servingData(s).responses![servingKey(service.id,area.id,p.id)].code} if unavailable.`:''} Reply STOP to opt out.`;
 }
 export const servingSnapshot=(service:ServicePlan,area:MinistryArea,personId:string)=>JSON.stringify([service.title,service.date,service.time,area.name,area.description,area.arrivalTime,area.assignedAt[personId]]);
 export function servingReminderIssue(s:State,ref:ServingReminder,now=new Date()):string|null{
  const service=servingData(s).services.find(x=>x.id===ref.serviceId),area=service?.areas.find(x=>x.id===ref.areaId);
  if(!service||service.cancelled)return 'Service cancelled';if(!area)return 'Ministry area removed';
- if(!area.personIds.includes(ref.personId))return 'Assignment removed';if(!area.remindersEnabled)return 'Area reminders turned off';
- if(!area.reminderMinutes.includes(ref.minutes))return 'Reminder timing removed';
+ if(availabilityIssue(s,ref.personId,service.date))return 'Volunteer unavailable on this date';
+ if(servingData(s).responses?.[servingKey(service.id,area.id,ref.personId)]?.status==='declined')return 'Volunteer declined';
+ if(!area.personIds.includes(ref.personId))return 'Assignment removed';if(!area.remindersEnabled&&!ref.invitation)return 'Area reminders turned off';
+ if(!ref.invitation&&!area.reminderMinutes.includes(ref.minutes))return 'Reminder timing removed';
  const arrival=servingInstant(service.date,area.arrivalTime);if(arrival<=now)return 'Arrival time passed';
- if(now.getTime()-(arrival.getTime()-ref.minutes*60000)>6*3600000)return 'Reminder time passed';
+ if(!ref.invitation&&now.getTime()-(arrival.getTime()-ref.minutes*60000)>6*3600000)return 'Reminder time passed';
  if(servingSnapshot(service,area,ref.personId)!==ref.snapshot)return 'Schedule changed; old reminder cancelled';return null;
 }
 function text(v:unknown,max:number,required=true){if(typeof v!=='string'||v.trim().length>max||(required&&!v.trim()))throw Error('Fill in the required fields.');return v.trim();}
@@ -80,9 +84,32 @@ export function applyServingAction(previous:State,a:Action,actor:string,now=new 
   if(old)service.areas[service.areas.indexOf(old)]=area;else {if(service.areas.length>=40)throw Error('Up to 40 ministry areas can be added per service.');service.areas.push(area);}service.version++;label=`Saved ${name}; reminders follow this service's assignments`;
  }else if(a.type==='serving.area.remove'){
   if(!service||!service.areas.some(x=>x.id===a.areaId))throw Error('Ministry area no longer exists.');service.areas=service.areas.filter(x=>x.id!==a.areaId);service.version++;label='Ministry area removed; unsent reminders stopped';
+ }else if(a.type==='serving.response'){
+  if(!service||service.cancelled)throw Error('Choose an active service.');future(service.date,service.time,now);ensureServingResponses(s);const key=servingKey(service.id,String(a.areaId),String(a.personId)),response=data.responses?.[key];if(!response||!['pending','confirmed','declined'].includes(String(a.status)))throw Error('Choose an active assignment.');response.status=a.status as ServingResponse['status'];response.at=at;service.version++;label='Volunteer response recorded';
  }else throw Error('Unknown serving action.');
+ ensureServingResponses(s);
  // Keep provider attempts as history, cancelling only work that has not been claimed.
  const broadcasts=(s as ServingState&{broadcasts?:{serving?:ServingReminder;targets:{status:string;reason?:string}[];status:string}[]}).broadcasts??[];
  for(const b of broadcasts)if(b.serving){const issue=servingReminderIssue(s,b.serving,now);if(issue){for(const t of b.targets)if(t.status==='pending'){t.status='skipped';t.reason=issue;}}}
  s.audit.unshift({id:crypto.randomUUID(),at,actor,action:label});s.audit=s.audit.slice(0,1000);return s;
+}
+
+export const servingKey=(serviceId:string,areaId:string,personId:string)=>[serviceId,areaId,personId].join(':');
+export function ensureServingResponses(s:State){
+ const data=servingData(s);data.responses??={};
+ for(const service of data.services)for(const area of service.areas)for(const personId of area.personIds){
+  const key=servingKey(service.id,area.id,personId),snapshot=servingSnapshot(service,area,personId),old=data.responses[key];
+  if(!old||old.snapshot!==snapshot)data.responses[key]={code:crypto.randomUUID().replaceAll('-','').slice(0,8).toUpperCase(),status:'pending',snapshot};
+ }
+ for(const key of Object.keys(data.responses))if(!data.services.some(s=>s.areas.some(a=>a.personIds.some(p=>servingKey(s.id,a.id,p)===key))))delete data.responses[key];
+}
+export function applyServingReply(s:State,from:string,body:string,now=new Date()):boolean{
+ const match=body.trim().toUpperCase().match(/^(YES|NO)\s+([A-F0-9]{8})$/);if(!match)return false;
+ const data=servingData(s),candidates=data.services.flatMap(service=>service.areas.flatMap(area=>area.personIds.map(personId=>({service,area,personId,response:data.responses?.[servingKey(service.id,area.id,personId)]})))).filter(x=>x.response?.code===match[2]&&!x.service.cancelled&&servingInstant(x.service.date,x.area.arrivalTime)>now&&x.response.snapshot===servingSnapshot(x.service,x.area,x.personId)&&s.people.some(p=>p.id===x.personId&&p.phone===from&&!p.archived));
+ if(candidates.length!==1)return false;
+ const x=candidates[0];x.response!.status=match[1]==='YES'?'confirmed':'declined';x.response!.at=now.toISOString();x.service.version++;
+ s.audit.unshift({id:crypto.randomUUID(),at:now.toISOString(),actor:'Volunteer reply',action:'Serving assignment '+x.response!.status});return true;
+}
+export function servingConflicts(s:State,personId:string,date:string,excludeArea?:string){
+ return servingData(s).services.filter(service=>!service.cancelled&&service.date===date).flatMap(service=>service.areas.filter(area=>area.id!==excludeArea&&area.personIds.includes(personId)&&servingData(s).responses?.[servingKey(service.id,area.id,personId)]?.status!=='declined').map(area=>service.title+' · '+area.name));
 }
