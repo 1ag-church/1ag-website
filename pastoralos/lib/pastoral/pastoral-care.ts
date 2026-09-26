@@ -80,6 +80,7 @@ export function applyCareAction(previous:State,a:Action,actor:string,now=new Dat
   const caseId=typeof a.caseId==='string'&&a.caseId?a.caseId:undefined;
   if(caseId&&!c.cases.some(x=>x.id===caseId&&x.personId===personId))throw Error('Care record unavailable.');
   history(c,personId,body,at,{caseId,kind});
+  if(a.followUpAt&&caseId&&c.cases.find(x=>x.id===caseId)?.status==='closed')throw Error('Reopen this care record before scheduling a new follow-up.');
   if(a.followUpAt)addTask(c,personId,str(a.followUpTitle??'Personal follow-up',120),instant(a.followUpAt),at,caseId);
   label='Note saved'+(a.followUpAt?' with follow-up':'');
  }else if(a.type==='care.preferences'){
