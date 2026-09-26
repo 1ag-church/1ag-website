@@ -15,27 +15,28 @@ for slug in ('pastoralos-staff', 'pastoralos-worker', 'pastoralos-twilio'):
         names += ['serving-confirmations.ts']
         key = 'lib/pastoral/staff-api.ts'
         content = files[key]
-        content = "import {applyCareAction} from './pastoral-care.ts';\nimport {applyServingInvite} from './serving-confirmations.ts';\n" + content
-        content = content.replace('export interface StaffApiDependencies {', 'export interface StaffApiDependencies {\n  health?(owner:string):Promise<{lastCompletedAt:string|null;lastError:string|null}>;')
-        content = content.replace('    async uploadEmailImage(', '''    async health(owner){
-      const {data,error}=await client.from('pastoral_worker_runtime').select('last_completed_at,last_error').eq('owner_id',owner).maybeSingle();
-      if(error||!data)throw Error('Scheduler status unavailable.');
-      return {lastCompletedAt:data.last_completed_at,lastError:data.last_error};
-    },
-    async uploadEmailImage(''')
-        content = content.replace("['/api/email-image','/api/delivery-connection'", "['/api/health','/api/email-image','/api/delivery-connection'")
-        content = content.replace("    if(path === '/api/delivery-connection')", "    if(path==='/api/health')return deps.health?json(await deps.health(staff.workspaceOwner)):json({error:'Scheduler status unavailable.'},503);\n    if(path === '/api/delivery-connection')")
-        needle = "      if(data.action.type.startsWith('serving.')){"
-        assert content.count(needle) == 1
-        content = content.replace(needle, """      if(data.action.type.startsWith('care.')){
-        state=applyCareAction(current.state,data.action,staff.email);
-      }else if(data.action.type==='serving.invite'){
-        state=applyServingInvite(current.state,data.action,staff.email,deps.deliveryConnection?.()??{sms:false,email:false});
-      }else if(data.action.type.startsWith('serving.')){""")
-        files[key] = content
-        key = 'lib/pastoral/edge-staff.ts'
-        assert '(email-image|' in files[key]
-        files[key] = files[key].replace('(email-image|', '(health|email-image|')
+        if "import {applyCareAction}" not in content:
+            content = "import {applyCareAction} from './pastoral-care.ts';\nimport {applyServingInvite} from './serving-confirmations.ts';\n" + content
+            content = content.replace('export interface StaffApiDependencies {', 'export interface StaffApiDependencies {\n  health?(owner:string):Promise<{lastCompletedAt:string|null;lastError:string|null}>;')
+            content = content.replace('    async uploadEmailImage(', '''    async health(owner){
+          const {data,error}=await client.from('pastoral_worker_runtime').select('last_completed_at,last_error').eq('owner_id',owner).maybeSingle();
+          if(error||!data)throw Error('Scheduler status unavailable.');
+          return {lastCompletedAt:data.last_completed_at,lastError:data.last_error};
+        },
+        async uploadEmailImage(''')
+            content = content.replace("['/api/email-image','/api/delivery-connection'", "['/api/health','/api/email-image','/api/delivery-connection'")
+            content = content.replace("    if(path === '/api/delivery-connection')", "    if(path==='/api/health')return deps.health?json(await deps.health(staff.workspaceOwner)):json({error:'Scheduler status unavailable.'},503);\n    if(path === '/api/delivery-connection')")
+            needle = "      if(data.action.type.startsWith('serving.')){"
+            assert content.count(needle) == 1
+            content = content.replace(needle, """      if(data.action.type.startsWith('care.')){
+            state=applyCareAction(current.state,data.action,staff.email);
+          }else if(data.action.type==='serving.invite'){
+            state=applyServingInvite(current.state,data.action,staff.email,deps.deliveryConnection?.()??{sms:false,email:false});
+          }else if(data.action.type.startsWith('serving.')){""")
+            files[key] = content
+            key = 'lib/pastoral/edge-staff.ts'
+            assert '(email-image|' in files[key]
+            files[key] = files[key].replace('(email-image|', '(health|email-image|')
     elif slug.endswith('worker'):
         names += ['care-reminders.ts', 'serving-reminders.ts', 'sms-conversations.ts', 'worker-jobs.ts']
         key = 'supabase/functions/pastoralos-worker/index.ts'

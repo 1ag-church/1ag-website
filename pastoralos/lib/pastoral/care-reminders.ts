@@ -15,9 +15,11 @@ export function noticeIssue(s:State,n:CareNotice,now:Date):string|null{
  if(n.destination!==(n.channel==='email'?p.email:s.settings.adminPhone))return 'Reminder destination changed';
  if(n.channel==='sms'&&s.smsSuppressions?.some(x=>x.phone===n.destination))return 'Reminder number opted out';
  if(n.day!==centralDay(now))return 'Reminder date passed';
+ if(n.kind==='due'&&!p.dueReminders)return 'Due reminders turned off';
  if(n.kind==='due'&&!n.taskIds.some((id,i)=>c.tasks.some(t=>t.id===id&&t.status==='open'&&t.notify&&t.revision===n.taskRevisions[i]&&t.dueAt<=now.toISOString()&&s.people.some(p=>p.id===t.personId&&!p.archived&&!p.sample))))return 'Follow-ups completed or rescheduled';
  return null;
 }
+const reusable=(n:CareNotice)=>n.status==='cancelled'&&!n.attemptedAt&&(!n.reason||['Reminder preference changed','Reminder date passed','Due reminders turned off'].includes(n.reason));
 export function prepareCareNotices(s:CareState,now:Date){
  const c=ensureCare(s),p=c.preferences,day=centralDay(now),at=now.toISOString();
  for(const n of c.notices){
@@ -27,9 +29,9 @@ export function prepareCareNotices(s:CareState,now:Date){
  if(p.channel==='off'||s.settings.paused)return;
  const destination=p.channel==='email'?p.email:s.settings.adminPhone??'';
  if(!destination)return;
- const add=(id:string,kind:CareNotice['kind'],tasks:typeof c.tasks)=>{if(!c.notices.some(n=>n.id===id))c.notices.push({id,kind,taskIds:tasks.map(t=>t.id),taskRevisions:tasks.map(t=>t.revision),day,channel:p.channel as 'email'|'sms',destination,status:'pending',createdAt:at,attempts:0});};
+ const add=(id:string,kind:CareNotice['kind'],tasks:typeof c.tasks)=>{const old=c.notices.find(n=>n.id===id),next:CareNotice={id,kind,taskIds:tasks.map(t=>t.id),taskRevisions:tasks.map(t=>t.revision),day,channel:p.channel as 'email'|'sms',destination,status:'pending',createdAt:at,attempts:0};if(!old)c.notices.push(next);else if(reusable(old))c.notices[c.notices.indexOf(old)]=next;};
  if(centralClock(now)>=p.digestTime&&(!p.enabledAt||centralDay(new Date(p.enabledAt))<day||centralClock(new Date(p.enabledAt))<=p.digestTime))add('digest:'+day,'digest',[]);
- if(p.dueReminders){const due=c.tasks.filter(t=>t.status==='open'&&t.notify&&t.dueAt<=at&&s.people.some(p=>p.id===t.personId&&!p.archived&&!p.sample)&&!c.notices.some(n=>n.kind==='due'&&n.taskIds.some((id,i)=>id===t.id&&n.taskRevisions[i]===t.revision)));
+ if(p.dueReminders){const due=c.tasks.filter(t=>t.status==='open'&&t.notify&&t.dueAt<=at&&s.people.some(p=>p.id===t.personId&&!p.archived&&!p.sample)&&!c.notices.some(n=>n.kind==='due'&&!reusable(n)&&n.taskIds.some((id,i)=>id===t.id&&n.taskRevisions[i]===t.revision)));
   if(due.length)add('due:'+day+':'+due.map(t=>t.id+'v'+t.revision).sort().join('|'),'due',due);
  }
 }

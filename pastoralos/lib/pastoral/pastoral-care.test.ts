@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {initialState,type Action} from './model.ts';
 import {applyCareAction,careData,ensureCare,careLocalTime,quickNoteSuggestion,type CareState} from './pastoral-care.ts';
-import {prepareCareNotices,runCareReminderWorker,reminderBody} from './care-reminders.ts';
+import {prepareCareNotices,runCareReminderWorker,reminderBody,noticeIssue} from './care-reminders.ts';
 import {applyIncomingSms} from './inbound.ts';
 import {applyServingAction,servingData,servingKey,applyServingReply,servingReminderIssue,servingSnapshot} from './serving.ts';
 import {applyServingInvite} from './serving-confirmations.ts';
@@ -96,4 +96,18 @@ test('only uniquely matched enrolled guest replies create a hold; resume preserv
  const notGuest=fresh();notGuest.people[0].assimilation=false;assert.equal(Object.keys(careData(incoming(notGuest,'Thanks')).replyHolds).length,0);
  const shared=fresh();shared.people.push({...shared.people[0],id:'second'});assert.equal(Object.keys(careData(incoming(shared,'Thanks')).replyHolds).length,0);
  const disabled=fresh();ensureCare(disabled).preferences.pauseOnReply=false;assert.equal(Object.keys(careData(incoming(disabled,'Thanks')).replyHolds).length,0);
+});
+
+test('never-attempted reminders resume after preferences change or an unavailable day, while attempted ones cannot duplicate',()=>{
+ let s=enabled();prepareCareNotices(s,now);const due=careData(s).notices.find(n=>n.kind==='due')!;
+ s=action(s,{type:'care.preferences',preferences:{channel:'email',digestTime:'08:00',dueReminders:true,pauseOnReply:true}});prepareCareNotices(s,now);
+ assert.equal(careData(s).notices.find(n=>n.id===due.id)?.channel,'email');assert.equal(careData(s).notices.find(n=>n.id===due.id)?.status,'pending');
+ prepareCareNotices(s,new Date('2026-09-27T15:00:00Z'));assert.ok(careData(s).notices.some(n=>n.kind==='due'&&n.day==='2026-09-27'&&n.status==='pending'));
+ const pending=careData(s).notices.find(n=>n.kind==='due'&&n.status==='pending')!;pending.status='sent';pending.attemptedAt='2026-09-27T15:00:00Z';
+ prepareCareNotices(s,new Date('2026-09-28T15:00:00Z'));assert.equal(careData(s).notices.filter(n=>n.kind==='due'&&n.status==='pending').length,0);
+ careData(s).preferences.dueReminders=false;assert.equal(noticeIssue(s,pending,new Date('2026-09-27T15:00:00Z')),'Due reminders turned off');
+});
+test('a closed care record cannot acquire new open follow-ups through a note',()=>{
+ let s=fresh();s=action(s,{type:'care.case.save',personId:s.people[0].id,title:'Visit',detail:'',steps:[{title:'Call',dueAt:now.toISOString()}]});const id=careData(s).cases[0].id;
+ s=action(s,{type:'care.case.status',id,status:'closed'});assert.throws(()=>action(s,{type:'care.note.add',personId:s.people[0].id,caseId:id,body:'Another call',followUpAt:'2026-09-27T15:00:00Z'}),/Reopen/);
 });
