@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import './supabase'; // Initialize Supabase storage
 import { uploadStaffPhoto, supabase } from './supabase';
 import { verifyWebsiteAdmin } from './staffAccess';
+import { initializeDirectionsTracking, trackVisitDirections } from './directionsTracking.mjs';
 
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1458,6 +1459,8 @@ function PlanVisitPage({ navigate, settings }) {
 
   const [openFaq, setOpenFaq] = useState(null);
 
+  useEffect(() => { initializeDirectionsTracking(); }, []);
+
   return (
     <div style={{ paddingTop: 72, minHeight: "100vh", background: "white" }}>
 
@@ -1630,6 +1633,7 @@ function PlanVisitPage({ navigate, settings }) {
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.address)}`}
                 target="_blank"
                 rel="noreferrer"
+                onClick={trackVisitDirections}
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 8,
                   background: "rgba(255,255,255,0.08)",
