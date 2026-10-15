@@ -3,6 +3,12 @@
   publish = "dist"
 
 [[redirects]]
+  from = "/mbf"
+  to = "https://1ag.churchcenter.com/registrations/signups/3901087"
+  status = 302
+  force = true
+
+[[redirects]]
   from = "/pastoralos/api/*"
   to = "https://mewbiwkdstngmbeispwo.supabase.co/functions/v1/pastoralos-staff/:splat"
   status = 200
