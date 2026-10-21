@@ -125,3 +125,22 @@ body{color:var(--foreground)}.brand-wordmark{font-family:Georgia,serif;font-size
 .person-search{position:relative;max-width:420px}.recipient-search-input{position:relative}.recipient-search-input>svg{position:absolute;left:12px;top:11px;color:#647a80;pointer-events:none}.recipient-search-input input{padding-left:37px;min-height:40px}.recipient-results{position:absolute;top:100%;left:0;right:0;z-index:40;background:white;border:1px solid #cedddd;border-radius:8px;box-shadow:0 10px 28px #153f4629;overflow:hidden}.recipient-results ul{max-height:260px;overflow-y:auto;overscroll-behavior:contain}.recipient-results li{padding:11px 14px;cursor:pointer;list-style:none;border-bottom:1px solid #edf1f1}.recipient-results li:hover,.recipient-results li[aria-selected=true]{background:#e8f5f2}.recipient-results strong{display:block;font-size:13px;font-weight:600}.recipient-results small{display:block;font-size:12px;color:#61757b;overflow-wrap:anywhere;margin-top:3px}.recipient-results>p{padding:10px 14px;font-size:12px;color:#647a80;background:#f8fafa}.audience-picker .group-chip{align-items:center;gap:7px}.schedule-panel .person-search{min-width:240px}
 
 .view-guests .board-card .badge{white-space:normal;overflow-wrap:anywhere}
+
+/* Keep long People profiles inside the viewport and their actions within reach. */
+.person-panel{
+ min-height:0;
+ max-height:calc(100vh - 40px);
+ max-height:calc(100dvh - 40px);
+ overflow-y:auto;
+ overscroll-behavior-y:contain;
+ scrollbar-gutter:stable;
+ padding-right:12px;
+ padding-bottom:24px;
+}
+.profile-heading{padding-right:20px}
+.profile-heading>div{min-width:0;overflow-wrap:anywhere}
+.profile-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.person-panel .profile-note{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1000px){
+ .person-panel{min-height:0;max-height:100vh;max-height:100dvh;padding-right:24px;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+}
