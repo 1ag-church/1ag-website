@@ -1,14 +1,16 @@
 # 🚀 Quick Start Guide
 
-**Get your 1AG Church website live in 30 minutes!**
+**Deploy the website after the shared Supabase staff-access foundation is ready.**
 
 ## ⚡ Super Quick Version
 
-### 1. Supabase Setup (5 minutes)
+### 1. Supabase Setup
 ```
 1. Go to app.supabase.com → Create new project
 2. Copy Project URL and anon key
-3. Run the SQL from README.md to create storage table
+3. Follow database/README.md: install the reviewed private staff-access foundation
+4. For a fresh storage table, run database/website-setup.sql
+5. Validate grants, RLS and staff access in an isolated preview
 ```
 
 ### 2. GitHub Setup (5 minutes)
@@ -41,7 +43,7 @@ git push -u origin main
 ## 📝 Don't Forget
 
 - [ ] Place `1AG_Color_Web.png` in `/public` folder
-- [ ] Change admin password in `src/App.jsx`
+- [ ] Provision individual Supabase Auth staff accounts with explicit website-admin membership
 - [ ] Update giving link in `src/App.jsx`
 - [ ] Test admin panel at `yoursite.com/#admin`
 - [ ] Add your first sermon and staff members
@@ -50,4 +52,5 @@ git push -u origin main
 
 See the full `README.md` for detailed step-by-step instructions.
 
-**Default Admin Password:** `1agchurch` (change this immediately!)
+Staff Login uses individual Supabase Auth accounts and explicit authorization; there is no shared default admin password. Existing production tables keep their grants. See [database/README.md](database/README.md) before a reset or preview database creation.
+

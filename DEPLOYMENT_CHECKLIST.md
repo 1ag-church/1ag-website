@@ -5,7 +5,7 @@ Use this checklist to make sure you've completed all the necessary steps.
 ## Pre-Deployment
 
 - [ ] Logo file (`1AG_Color_Web.png`) is in `/public` folder
-- [ ] Changed admin password from default in `src/App.jsx`
+- [ ] Provisioned authorized staff accounts through the private operator process
 - [ ] Updated giving URL in `src/App.jsx`
 - [ ] Updated contact information (address, phone, email)
 - [ ] Updated service times if different from defaults
@@ -15,7 +15,12 @@ Use this checklist to make sure you've completed all the necessary steps.
 
 - [ ] Created Supabase account
 - [ ] Created new project
-- [ ] Ran SQL to create `storage` table
+- [ ] Reviewed [database creation and recovery instructions](database/README.md)
+- [ ] Installed the reviewed shared-project staff-access foundation
+- [ ] For fresh storage only, ran `database/website-setup.sql`
+- [ ] Confirmed explicit per-table grants and RLS with `database/verify-access.sql`
+- [ ] For a reset/preview, recovered the full private schema and worker runtime recipe
+- [ ] Verified Data API settings and isolated HTTP access checks
 - [ ] Saved Project URL
 - [ ] Saved anon key
 - [ ] Tested database connection locally
@@ -73,7 +78,7 @@ Use this checklist to make sure you've completed all the necessary steps.
 
 ## Security
 
-- [ ] Changed default admin password
+- [ ] Staff Login uses individual Auth accounts and explicit active website-admin membership
 - [ ] Environment variables are secure (not in code)
 - [ ] Supabase RLS policies configured
 - [ ] SSL certificate is active and forced
@@ -82,7 +87,7 @@ Use this checklist to make sure you've completed all the necessary steps.
 ## Launch
 
 - [ ] Shared website URL with church leadership
-- [ ] Provided admin password to authorized staff
+- [ ] Provisioned individual authorized staff accounts
 - [ ] Set up analytics (Netlify Analytics or Google Analytics)
 - [ ] Scheduled first content review/update
 - [ ] Created backup of Supabase data
@@ -112,3 +117,4 @@ If all checkboxes are checked, you're ready to go live!
 **Date Launched:** _______________
 **Deployed By:** _______________
 **Notes:** _______________________________________________
+

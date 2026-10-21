@@ -1,6 +1,6 @@
 # 1AG Church Website - Deployment Guide
 
-Complete step-by-step guide to deploy your church website to Netlify with Supabase backend.
+Deployment guide for the website on Netlify with the shared Supabase backend. New database creation also requires the reviewed private staff-access foundation; see [database setup and recovery](database/README.md).
 
 ---
 
@@ -27,53 +27,15 @@ Before you begin, make sure you have:
 4. Click **"Create new project"**
 5. Wait 2-3 minutes for the project to initialize
 
-### Step 2: Create the Storage Table
+### Step 2: Create the Storage Table Safely
 
-1. In your Supabase project, click **"SQL Editor"** in the left sidebar
-2. Click **"+ New query"**
-3. Paste this SQL code:
+Existing production tables retain their permissions after Supabase's October 30, 2026 change. Newly created tables, including reset and preview tables, require explicit Data API grants.
 
-```sql
--- Create the storage table for sermons and staff data
-CREATE TABLE storage (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  key TEXT NOT NULL,
-  value TEXT NOT NULL,
-  shared BOOLEAN DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+The current website uses Supabase Auth and the shared-project staff-access foundation. A new project is not ready for staff login merely because a `storage` table exists. Install the reviewed private foundation and provision authorized staff first. See the [database audit and recovery instructions](database/README.md) for prerequisites and the incomplete migration-history details.
 
--- Create unique index on key and shared combination
-CREATE UNIQUE INDEX storage_key_shared_idx ON storage(key, shared);
+For a **fresh** `public.storage` table, open SQL Editor and run the complete [database/website-setup.sql](database/website-setup.sql). It creates the table, enables RLS, explicitly grants anonymous read and authenticated CRUD, and restricts public reads to the three website content keys. Writes require an active website-admin membership. It refuses to overwrite an existing table or proceed without the staff-access prerequisite.
 
--- Enable Row Level Security
-ALTER TABLE storage ENABLE ROW LEVEL SECURITY;
-
--- Create policy to allow all operations (adjust in production for security)
-CREATE POLICY "Allow all operations" ON storage
-  FOR ALL
-  USING (true)
-  WITH CHECK (true);
-
--- Create function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger to automatically update updated_at
-CREATE TRIGGER update_storage_updated_at
-  BEFORE UPDATE ON storage
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-```
-
-4. Click **"Run"** (or press Ctrl/Cmd + Enter)
-5. You should see "Success. No rows returned"
+Do not apply this creation script to production as a permission repair. Existing production grants were inspected and are already present. Complete the isolated tests and preview checks in [database/README.md](database/README.md) before a new environment is exposed.
 
 ### Step 3: Get Your Supabase Credentials
 
@@ -291,40 +253,13 @@ If you want live calendar integration:
 
 ## 🔐 Security Best Practices
 
-### Change Admin Password
+### Staff Authentication and Database Permissions
 
-1. In `src/App.jsx`, find:
-   ```javascript
-   const ADMIN_PASS = "1agchurch";
-   ```
-2. Change to a strong password:
-   ```javascript
-   const ADMIN_PASS = "YourStrongPassword123!";
-   ```
-3. Commit and push the change
+Staff Login uses Supabase Auth plus an explicit active `website_admin` membership in `public.pastoral_staff_access`. Provision and revoke staff through the reviewed private operator process. Staff change their own Auth password through the admin panel; there is no shared browser-code admin password.
 
-### Secure Your Supabase (Production Ready)
+Use the schema-qualified SQL and access matrix in [database/README.md](database/README.md). Preserve authenticated self-read on the staff-access table, restrict storage writes to approved staff with RLS, and keep private PastoralOS tables server-only. A request's Origin header is not an authorization credential. Never add anonymous write grants, broad read policies over private records, or browser-side service keys.
 
-1. Go to Supabase → SQL Editor
-2. Update the storage policy to restrict access:
-   ```sql
-   -- Drop the permissive policy
-   DROP POLICY "Allow all operations" ON storage;
-   
-   -- Create more restrictive policies
-   -- Allow read for everyone
-   CREATE POLICY "Allow public read" ON storage
-     FOR SELECT
-     USING (true);
-   
-   -- Allow write only from your Netlify domain
-   CREATE POLICY "Allow authorized write" ON storage
-     FOR INSERT, UPDATE, DELETE
-     USING (
-       current_setting('request.headers')::json->>'origin' 
-       LIKE '%your-domain.com%'
-     );
-   ```
+For future creation, include explicit per-table grants alongside RLS and policies. For existing production, review grants and policies with [database/verify-access.sql](database/verify-access.sql) rather than replacing them. Supabase Storage buckets such as `staff-photos` require their separate reviewed bucket setup.
 
 ---
 
@@ -382,10 +317,11 @@ Change these to match your brand guidelines!
 2. **Update content**: Replace sample data with your actual church info
 3. **Set up backups**: Consider exporting your Supabase data monthly
 4. **Monitor traffic**: Check Netlify Analytics to see visitor stats
-5. **Share with your team**: Give staff the admin password to manage content
+5. **Share with your team**: Provision individual authorized staff accounts to manage content
 
 ---
 
 **Congratulations! Your church website is live! 🎉**
 
 Visit your site at: `https://your-domain.com`
+
