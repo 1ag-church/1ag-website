@@ -1,17 +1,20 @@
 import type { State, Person } from './model.ts';
+import {previewGlooCsv,importGlooCsv} from './gloo-csv.ts';
 
-export type CsvField = 'name'|'firstName'|'lastName'|'phone'|'email'|'firstVisit';
-export type CsvMapping = Record<CsvField,string>;
-export type CsvOptions = { list:'prayer'|'guest'; mapping:CsvMapping; smsPermission:boolean; emailPermission:boolean; consentSource:string };
-export type CsvRow = { row:number; name:string; phone:string; email:string; firstVisit:string; issue:string; duplicate:boolean };
-export const csvFields:CsvField[]=['name','firstName','lastName','phone','email','firstVisit'];
-export const csvLabels:Record<CsvField,string>={name:'Full name',firstName:'First name',lastName:'Last name',phone:'Phone',email:'Email',firstVisit:'First visit (YYYY-MM-DD)'};
-const aliases:Record<CsvField,string[]>={name:['name','fullname'],firstName:['firstname','first','givenname'],lastName:['lastname','last','surname','familyname'],phone:['phone','phonenumber','mobile','mobilenumber','mobilephone','cell','cellphone'],email:['email','emailaddress'],firstVisit:['firstvisit','firstvisitdate','visitdate']};
+type BaseField = 'name'|'firstName'|'lastName'|'phone'|'email'|'firstVisit';
+type GlooField = 'address'|'groups'|'smsStatus'|'emailStatus'|'status'|'createdAt';
+export type CsvField = BaseField|GlooField;
+export type CsvMapping = Record<BaseField,string> & Partial<Record<GlooField,string>>;
+export type CsvOptions = { list:'prayer'|'guest'|'gloo'; mapping:CsvMapping; smsPermission:boolean; emailPermission:boolean; consentSource:string };
+export type CsvRow = { row:number; name:string; phone:string; email:string; firstVisit:string; issue:string; duplicate:boolean; result?:string; groups?:string[]; warning?:string };
+export const csvFields:CsvField[]=['name','firstName','lastName','phone','email','firstVisit','address','groups','smsStatus','emailStatus','status','createdAt'];
+export const csvLabels:Record<CsvField,string>={name:'Full name',firstName:'First name',lastName:'Last name',phone:'Phone',email:'Email',firstVisit:'First visit (YYYY-MM-DD)',address:'Address',groups:'Groups',smsStatus:'SMS subscription status',emailStatus:'Email subscription status',status:'Contact status',createdAt:'Gloo created at'};
+const aliases:Record<CsvField,string[]>={name:['name','fullname'],firstName:['firstname','first','givenname'],lastName:['lastname','last','surname','familyname'],phone:['phone','phonenumber','mobile','mobilenumber','mobilephone','cell','cellphone'],email:['email','emailaddress'],firstVisit:['firstvisit','firstvisitdate','visitdate'],address:['address'],groups:['groups'],smsStatus:['smssubscriptionstatus'],emailStatus:['emailsubscriptionstatus'],status:['status'],createdAt:['createdat']};
 export function parsePeopleCsv(text:string):{headers:string[];rows:string[][]} {
   if(typeof text!=='string'||new TextEncoder().encode(text).length>500000)throw Error('Choose a CSV file under 500 KB.');
   const rows:string[][]=[];let row:string[]=[],cell='',quoted=false,closed=false;
   const finishCell=()=>{row.push(cell.trim());cell='';closed=false;if(row.length>60)throw Error('CSV files can have at most 60 columns.');};
-  const finishRow=()=>{finishCell();if(row.some(Boolean))rows.push(row);row=[];if(rows.length>1001)throw Error('Import up to 1,000 people at a time.');};
+  const finishRow=()=>{finishCell();if(row.some(Boolean))rows.push(row);row=[];if(rows.length>5001)throw Error('Import up to 5,000 people at a time.');};
   text=text.replace(/^\uFEFF/,'');
   for(let i=0;i<text.length;i++){
     const c=text[i];
@@ -43,11 +46,12 @@ export function normalizeContactPhone(value:string):string {
 }
 export function previewPeopleCsv(text:string,options:CsvOptions,state:State):CsvRow[] {
   const {headers,rows}=parsePeopleCsv(text);
+  if(options?.list==='gloo')return previewGlooCsv(text,options,state);
   if(!options||!['prayer','guest'].includes(options.list)||!options.mapping)throw Error('Choose Prayer Chain or Assimilation and match the columns.');
   const mapping=options.mapping;
   if(!mapping.name&&!mapping.firstName)throw Error('Match a Full name or First name column.');
   if(!mapping.phone&&!mapping.email)throw Error('Match a Phone or Email column.');
-  for(const f of csvFields)if(typeof mapping[f]!=='string'||mapping[f]&&!headers.includes(mapping[f]))throw Error('Choose valid column headings.');
+  for(const f of csvFields)if(mapping[f]!==undefined&&(typeof mapping[f]!=='string'||mapping[f]&&!headers.includes(mapping[f]!)))throw Error('Choose valid column headings.');
   const used=csvFields.map(f=>mapping[f]).filter(Boolean);if(new Set(used).size!==used.length)throw Error('Match each CSV column to only one field.');
   const phones=new Set(state.people.map(p=>{try{return normalizeContactPhone(p.phone);}catch{return p.phone;}}).filter(Boolean));
   const emails=new Set(state.people.map(p=>p.email.toLowerCase()).filter(Boolean));
@@ -68,6 +72,7 @@ export function previewPeopleCsv(text:string,options:CsvOptions,state:State):Csv
   });
 }
 export function importPeopleCsv(previous:State,text:string,options:CsvOptions,actor:string,now=new Date()):State {
+  if(options?.list==='gloo')return importGlooCsv(previous,text,options,actor,now);
   const rows=previewPeopleCsv(text,options,previous);
   if(typeof options.smsPermission!=='boolean'||typeof options.emailPermission!=='boolean'||typeof options.consentSource!=='string'||options.consentSource.length>500)throw Error('Choose contact permissions and enter a consent source under 500 characters.');
   if((options.smsPermission||options.emailPermission)&&!options.consentSource.trim())throw Error('Record how these people gave permission to be contacted.');
